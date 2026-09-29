@@ -1,0 +1,53 @@
+name: 盤中進場提醒
+
+on:
+  schedule:
+    # 04:40 UTC = 台北 12:40 啟動，程式會等到 13:12 才掃描（避免 GitHub 排程延遲錯過時間）
+    - cron: "40 4 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      test:
+        description: "測試模式（不等時間、不檢查日期、不記錄持倉）"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: intraday
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: 盤中掃描
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ inputs.test }}" = "true" ]; then
+            python -m screener.intraday --test
+          else
+            python -m screener.intraday --wait-until 13:12
+          fi
+      - name: 記錄提醒過的股票
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/positions.csv 2>/dev/null || true
+          if git diff --cached --quiet; then echo "沒有變更"; else
+            git commit -m "盤中提醒 $(TZ=Asia/Taipei date +%F)"
+            git pull --rebase && git push
+          fi
