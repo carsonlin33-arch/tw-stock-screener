@@ -7,6 +7,11 @@
 
 程式跑在 **GitHub Actions**（GitHub 提供的免費雲端主機），你的電腦關機也會照常執行。
 
+## 通知方式
+
+- **預設：GitHub Issue 通知（不需要任何密碼）**：每天有符合的股票時，程式會在這個儲存庫開一則 Issue，GitHub 會寄通知信到你 GitHub 帳號的信箱（需在儲存庫右上角 Watch 設為 **All Activity**）。
+- **選用：Gmail**：若想由自己的 Gmail 寄出（附完整網頁報表檔），照下方第 2、3 步設定 `SMTP_PASSWORD` 後會自動改用 Gmail。
+
 ---
 
 ## 一次性設定（約 15 分鐘）
