@@ -99,12 +99,17 @@ def c_change_pct(p: Panel, a):
     return (c >= a.get("min", -100)) & (c <= a.get("max", 100))
 
 
+def _normal_day(p: Panel):
+    """今天和前一天都有成交，且漲跌幅在 ±10.5% 內（排除停牌後恢復交易、減資等參考價重設）。"""
+    return p.traded & p.traded.shift(1, fill_value=False) & (p.change_pct.abs() <= 10.5)
+
+
 def c_limit_up(p: Panel, a):
-    return p.traded & (p.close >= p.limit_price(True) - 1e-6)
+    return _normal_day(p) & (p.close >= p.limit_price(True) - 1e-6)
 
 
 def c_limit_down(p: Panel, a):
-    return p.traded & (p.close <= p.limit_price(False) + 1e-6)
+    return _normal_day(p) & (p.close <= p.limit_price(False) + 1e-6)
 
 
 def c_above_ma(p: Panel, a):
