@@ -1,0 +1,88 @@
+# ============================================================
+#  台股篩選器設定檔 —— 改這個檔案就能調整篩選條件
+#  修改後存檔（在 GitHub 網頁上直接編輯也可以），下次執行就會生效
+# ============================================================
+
+settings:
+  markets: [TWSE, TPEX]      # TWSE = 上市，TPEX = 上櫃
+  history_days: 150          # 保留多少個交易日的歷史（算季線至少要 61 天）
+  source: auto               # auto：官方優先、失敗改用 Yahoo；official；yahoo
+  exclude_codes: []          # 不想看的股票代號，例如 ["2330", "2317"]
+
+# 所有策略都會先套用的基本門檻（過濾冷門股、雞蛋水餃股）
+base_filter:
+  - {type: volume, min: 500}         # 當日成交量至少 500 張
+  - {type: price, min: 10}           # 股價至少 10 元
+
+# ------------------------------------------------------------
+#  策略：每個策略底下的條件「全部」成立才會被標記
+#  同一檔股票可以同時符合多個策略
+# ------------------------------------------------------------
+strategies:
+  - name: 爆量突破季線
+    enabled: true
+    conditions:
+      - {type: volume_vs_prev, min: 2}      # 成交量是前一天的 2 倍以上
+      - {type: cross_above_ma, period: 60}  # 今天收盤站上 60 日均線（昨天還在下面）
+
+  - name: 漲停
+    enabled: true
+    conditions:
+      - {type: limit_up}
+
+  - name: 爆量長紅
+    enabled: true
+    conditions:
+      - {type: volume_vs_avg, days: 5, min: 3}   # 成交量是前 5 日均量的 3 倍以上
+      - {type: change_pct, min: 5}               # 漲幅 5% 以上
+      - {type: red_candle}                       # 收紅K
+
+  - name: 前一天爆量、今天續強
+    enabled: true
+    conditions:
+      - {type: volume_vs_avg, days: 5, min: 2, days_ago: 1}  # 昨天量是前 5 日均量 2 倍
+      - {type: change_pct, min: 0, days_ago: 1}              # 昨天收漲
+      - {type: change_pct, min: 1}                           # 今天再漲 1% 以上
+      - {type: above_ma, period: 20}                         # 在月線之上
+
+  - name: 創60日新高且多頭排列
+    enabled: false          # 改成 true 就會啟用
+    conditions:
+      - {type: new_high, days: 60}
+      - {type: ma_bullish, periods: [5, 20, 60]}
+
+# ------------------------------------------------------------
+#  可用條件一覽（複製到上面使用）
+#
+#  {type: volume_vs_prev, min: 2}           量是前一日的 N 倍
+#  {type: volume_vs_avg, days: 5, min: 3}   量是前 N 日均量的 M 倍
+#  {type: volume, min: 1000, max: 50000}    成交量（張）範圍
+#  {type: price, min: 10, max: 200}         股價範圍
+#  {type: change_pct, min: 3, max: 9}       漲跌幅 % 範圍（跌就用負數）
+#  {type: limit_up} / {type: limit_down}    漲停 / 跌停
+#  {type: above_ma, period: 60}             收盤在 N 日均線之上（20=月線，60=季線，240=年線）
+#  {type: below_ma, period: 60}             收盤在 N 日均線之下
+#  {type: cross_above_ma, period: 60}       今天剛突破 N 日均線
+#  {type: cross_below_ma, period: 20}       今天剛跌破 N 日均線
+#  {type: ma_rising, period: 60, days: 5}   N 日均線比 5 天前高（均線上揚）
+#  {type: ma_bullish, periods: [5,20,60]}   均線多頭排列
+#  {type: ma_bias, period: 20, min: 0, max: 5}   與均線乖離率 % 範圍
+#  {type: new_high, days: 20}               收盤突破前 N 日最高價
+#  {type: new_low, days: 20}                收盤跌破前 N 日最低價
+#  {type: up_days, days: 3}                 連續上漲 N 天
+#  {type: red_candle, min_body: 2}          紅K，實體至少 2%
+#
+#  每個條件都能加上：
+#    days_ago: 1    改看 N 天前（1 = 前一天）
+#    within: 3      最近 N 天內任一天成立即可（例：{type: limit_up, within: 3}）
+#    not: true      反過來，不成立才算
+#  注意：用到 240 日年線時，history_days 要調到 260 以上
+# ------------------------------------------------------------
+
+report:
+  title: 台股每日篩選
+  spark_days: 60             # 報表小走勢圖顯示幾天
+
+email:
+  enabled: true
+  send_when_empty: false     # 沒有任何股票符合時是否也寄信
