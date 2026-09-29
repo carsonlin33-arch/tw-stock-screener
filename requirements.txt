@@ -4,3 +4,4 @@ requests
 pyyaml
 yfinance>=0.2.40
 twstock
+markdown

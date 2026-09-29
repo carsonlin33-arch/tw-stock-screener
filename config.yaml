@@ -45,6 +45,20 @@ strategies:
       - {type: change_pct, min: 1}                           # 今天再漲 1% 以上
       - {type: above_ma, period: 20}                         # 在月線之上
 
+  - name: 爆量突破新高（收盤確認）
+    enabled: true           # 回測最佳：爆量當天收盤買、量縮一半隔天賣（盤中提醒用同樣條件）
+    conditions:
+      - {type: volume_vs_avg, days: 5, min: 3}
+      - {type: change_pct, min: 3}
+      - {type: red_candle}
+      - {type: new_high, days: 60}
+
+  - name: 強勢創新高
+    enabled: true           # 回測：創60日新高＋季線上揚，6 個年度都跑贏大盤
+    conditions:
+      - {type: new_high, days: 60}
+      - {type: ma_rising, period: 60, days: 5}
+
   - name: 創60日新高且多頭排列
     enabled: false          # 改成 true 就會啟用
     conditions:
@@ -89,3 +103,23 @@ email:
   # 通知方式：auto = 有設定 Gmail 就用 Gmail，否則用 GitHub Issue（GitHub 會寄信到你帳號信箱）
   #           gmail / github 可強制指定
   method: auto
+
+# ------------------------------------------------------------
+#  盤中進場提醒（每個交易日約 13:12 掃描，來得及在收盤前買進）
+#  回測 2021~2026：爆量當天收盤買、量縮到爆量日一半以下隔天開盤賣，
+#  平均每筆跑贏大盤約 0.8%，勝率約 40%（靠少數大賺），6 年都是正報酬
+# ------------------------------------------------------------
+intraday:
+  enabled: true
+  volume_multiple: 3         # 目前成交量 ≥ 前 5 日均量的幾倍
+  min_volume_lots: 500       # 目前成交量至少幾張
+  min_change_pct: 3          # 漲幅至少 %
+  max_change_pct: 10.5
+  new_high_days: 60          # 現價突破前 N 日最高價
+  min_price: 10
+  exclude_industries: []     # 回測較差的產業：生技醫療業、鋼鐵工業、紡織纖維（要排除就填進來）
+  weak_market_pct: -3        # 大盤過去 20 天跌超過這個 %，提醒中會加警告
+  notify_when_empty: false
+  # 出場（收盤後每日檢查）
+  exit_shrink_ratio: 0.5     # 收盤成交量 < 爆量日 × 0.5 → 隔天開盤賣
+  max_hold_days: 20
