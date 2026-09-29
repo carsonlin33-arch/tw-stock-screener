@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from . import fetch, notify, report, rules
+from . import fetch, notify, positions, report, rules
 
 ROOT = Path(__file__).resolve().parent.parent
 SITE_DIR = ROOT / "site"
@@ -107,25 +107,35 @@ def main(argv=None) -> int:
         columns=["date", "strategy", "code"],
     ).to_csv(RESULT_DIR / f"{data_date}.csv", index=False)
 
-    # 4. Email
+    # 4. 盤中提醒過的股票：檢查量縮出場
+    ic = cfg.get("intraday", {})
+    exits, holding = positions.update(
+        hist, data_date, ic.get("exit_shrink_ratio", 0.5), int(ic.get("max_hold_days", 20)))
+    pos_md = positions.build_md(exits, holding)
+
+    # 5. 通知
     ecfg = cfg.get("email", {})
     total = len(all_codes)
-    if ecfg.get("enabled", True) and not a.no_email and (total or ecfg.get("send_when_empty")):
+    if ecfg.get("enabled", True) and not a.no_email and (total or exits or ecfg.get("send_when_empty")):
         report_url = os.environ.get("REPORT_URL", "")
         if not report_url and os.environ.get("GITHUB_REPOSITORY"):
             owner, repo = os.environ["GITHUB_REPOSITORY"].split("/")
             report_url = f"https://{owner.lower()}.github.io/{repo}/{data_date}.html"
         by_code = {r["code"]: r for r in rows}
         counts = "、".join(f"{s['name']} {len(s['codes'])}" for s in strat_info)
-        subject = f"【{title}】{data_date}｜{counts}"
+        subject = f"【{title}】{data_date}｜" + (f"出場提醒 {len(exits)}、" if exits else "") + counts
         method = ecfg.get("method", "auto")
         try:
             if method == "gmail" or (method == "auto" and notify.smtp_configured()):
                 body = notify.build_email_html(title, data_date, report_url, strat_info, by_code)
+                if pos_md:
+                    import markdown
+
+                    body = markdown.markdown(pos_md, extensions=["tables"]) + body
                 page = (SITE_DIR / f"{data_date}.html").read_bytes()
                 notify.send_email(subject, body, (f"report-{data_date}.html", page))
             else:
-                notify.create_issue(subject, notify.build_issue_md(title, data_date, report_url, strat_info, by_code))
+                notify.create_issue(subject, pos_md + notify.build_issue_md(title, data_date, report_url, strat_info, by_code))
         except Exception as e:  # 通知失敗不影響報表
             log.error("通知失敗：%s", e)
 

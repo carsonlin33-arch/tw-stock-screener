@@ -154,3 +154,15 @@ def create_issue(title: str, body_md: str) -> bool:
         return False
     log.info("已建立通知 Issue：%s", r.json().get("html_url"))
     return True
+
+
+def send(subject: str, body_md: str) -> None:
+    """依設定寄出通知：有 Gmail 就用 Gmail（Markdown 轉 HTML），否則開 GitHub Issue。"""
+    if smtp_configured():
+        import markdown
+
+        html_body = markdown.markdown(body_md, extensions=["tables"])
+        style = "<style>table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:4px 8px}</style>"
+        send_email(subject, style + html_body)
+    else:
+        create_issue(subject, body_md)
