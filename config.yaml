@@ -85,4 +85,7 @@ report:
 
 email:
   enabled: true
-  send_when_empty: false     # 沒有任何股票符合時是否也寄信
+  send_when_empty: false     # 沒有任何股票符合時是否也通知
+  # 通知方式：auto = 有設定 Gmail 就用 Gmail，否則用 GitHub Issue（GitHub 會寄信到你帳號信箱）
+  #           gmail / github 可強制指定
+  method: auto
