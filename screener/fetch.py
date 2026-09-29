@@ -95,7 +95,7 @@ def _rows_to_df(fields, rows, date: dt.date) -> pd.DataFrame:
 
 def _get_json(session: requests.Session, url: str, params: dict) -> dict:
     last = None
-    for attempt in range(3):
+    for attempt in range(5):
         try:
             r = session.get(url, params=params, headers=HEADERS, timeout=30)
             if r.status_code == 200:
@@ -170,21 +170,42 @@ def fetch_tpex_day(session: requests.Session, date: dt.date) -> pd.DataFrame | N
 def fetch_official_range(dates: list[dt.date], markets: list[str]) -> pd.DataFrame:
     session = requests.Session()
     frames = []
+    missing: list[tuple[dt.date, str]] = []
+    fails = 0  # 連續失敗次數；太多代表整個來源被擋，改用 Yahoo
     for i, d in enumerate(dates):
-        got = []
-        if "TWSE" in markets:
-            df = fetch_twse_day(session, d)
+        got, failed = [], []
+        for mk, fn in (("TWSE", fetch_twse_day), ("TPEX", fetch_tpex_day)):
+            if mk not in markets:
+                continue
+            try:
+                df = fn(session, d)
+            except SourceUnavailable as e:
+                log.warning("%s %s 抓取失敗：%s", d, mk, e)
+                failed.append(mk)
+                df = None
             time.sleep(REQUEST_GAP)
             if df is not None:
-                got.append(df.assign(market="TWSE"))
-        if "TPEX" in markets:
-            df = fetch_tpex_day(session, d)
-            time.sleep(REQUEST_GAP)
-            if df is not None:
-                got.append(df.assign(market="TPEX"))
-        status = f"{sum(len(g) for g in got)} 筆" if got else "休市/無資料"
+                got.append(df.assign(market=mk))
+        fails = fails + 1 if failed and not got else 0
+        if fails >= 3:
+            raise SourceUnavailable("官方來源連續失敗")
+        status = f"{sum(len(g) for g in got)} 筆" if got else ("失敗" if failed else "休市/無資料")
         log.info("[%d/%d] %s %s", i + 1, len(dates), d, status)
+        if got:
+            have = {g.market.iloc[0] for g in got}
+            missing += [(d, m) for m in markets if m not in have]
         frames.extend(got)
+    # 只抓到一個市場的日子（另一個市場連線失敗），最後再補抓一次
+    for d, mk in missing:
+        time.sleep(REQUEST_GAP * 3)
+        try:
+            df = (fetch_twse_day if mk == "TWSE" else fetch_tpex_day)(session, d)
+        except SourceUnavailable as e:
+            log.warning("補抓 %s %s 失敗：%s", d, mk, e)
+            continue
+        if df is not None:
+            frames.append(df.assign(market=mk))
+            log.info("補抓 %s %s：%d 筆", d, mk, len(df))
     if not frames:
         return pd.DataFrame(columns=COLS)
     return pd.concat(frames, ignore_index=True)
@@ -276,6 +297,41 @@ def _add_new_listings(new: pd.DataFrame, stocks: pd.DataFrame, markets: list[str
     log.info("新增 %d 檔新股到清單：%s", len(add), ", ".join(add.code))
 
 
+def _repair_gaps(hist: pd.DataFrame, stocks: pd.DataFrame, markets: list[str], limit: int = 10) -> pd.DataFrame:
+    """找出某個市場整天資料缺漏的日子（例如當時連線中斷），重新補抓。"""
+    mk = hist.code.map(stocks.set_index("code").market)
+    counts = hist.assign(mk=mk).groupby(["date", "mk"]).size().unstack(fill_value=0)
+    todo = []
+    for m in markets:
+        if m not in counts:
+            continue
+        med = counts[m].median()
+        bad = counts.index[counts[m] < med * 0.5]
+        todo += [(d, m) for d in bad]
+    if not todo:
+        return hist
+    session = requests.Session()
+    added = []
+    for d, m in todo[:limit]:
+        day = dt.date.fromisoformat(d)
+        try:
+            df = (fetch_twse_day if m == "TWSE" else fetch_tpex_day)(session, day)
+        except SourceUnavailable as e:
+            log.warning("補缺 %s %s 失敗：%s", d, m, e)
+            continue
+        finally:
+            time.sleep(REQUEST_GAP)
+        if df is not None:
+            added.append(df[COLS])
+            log.info("補齊缺漏：%s %s %d 筆", d, m, len(df))
+    if not added:
+        return hist
+    new = pd.concat(added, ignore_index=True)
+    new = new[new.code.isin(set(stocks.code))]
+    merged = pd.concat([hist, new], ignore_index=True).drop_duplicates(["date", "code"], keep="last")
+    return merged
+
+
 def load_history() -> pd.DataFrame:
     if HISTORY_FILE.exists():
         return pd.read_csv(HISTORY_FILE, dtype={"code": str})
@@ -309,9 +365,12 @@ def update_history(
         for i in range((target - start).days + 1)
         if (start + dt.timedelta(days=i)).weekday() < 5
     ]
+    if source in ("auto", "official") and not hist.empty:
+        hist = _repair_gaps(hist, stocks, markets)
     if not dates:
         log.info("歷史資料已是最新（%s）", hist.date.max())
-        return hist
+        save_history(hist, keep_days)
+        return load_history()
 
     new = None
     if source in ("auto", "official"):

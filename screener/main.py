@@ -115,13 +115,19 @@ def main(argv=None) -> int:
         if not report_url and os.environ.get("GITHUB_REPOSITORY"):
             owner, repo = os.environ["GITHUB_REPOSITORY"].split("/")
             report_url = f"https://{owner.lower()}.github.io/{repo}/{data_date}.html"
-        body = notify.build_email_html(title, data_date, report_url, strat_info, {r["code"]: r for r in rows})
+        by_code = {r["code"]: r for r in rows}
         counts = "、".join(f"{s['name']} {len(s['codes'])}" for s in strat_info)
-        page = (SITE_DIR / f"{data_date}.html").read_bytes()
+        subject = f"【{title}】{data_date}｜{counts}"
+        method = ecfg.get("method", "auto")
         try:
-            notify.send_email(f"【{title}】{data_date}｜{counts}", body, (f"report-{data_date}.html", page))
-        except Exception as e:  # 寄信失敗不影響報表
-            log.error("寄信失敗：%s", e)
+            if method == "gmail" or (method == "auto" and notify.smtp_configured()):
+                body = notify.build_email_html(title, data_date, report_url, strat_info, by_code)
+                page = (SITE_DIR / f"{data_date}.html").read_bytes()
+                notify.send_email(subject, body, (f"report-{data_date}.html", page))
+            else:
+                notify.create_issue(subject, notify.build_issue_md(title, data_date, report_url, strat_info, by_code))
+        except Exception as e:  # 通知失敗不影響報表
+            log.error("通知失敗：%s", e)
 
     state["last_done"] = data_date
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2))

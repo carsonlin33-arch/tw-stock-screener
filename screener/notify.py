@@ -5,10 +5,14 @@
   SMTP_PASSWORD  Gmail「應用程式密碼」（16 碼，不是登入密碼）
   MAIL_TO        收件人，多個用逗號分隔（沒填就寄給自己）
 選填：SMTP_HOST（預設 smtp.gmail.com）、SMTP_PORT（預設 465）
+
+若沒有設定 Gmail，改用「GitHub Issue」通知：每天在儲存庫開一則 Issue，
+GitHub 會自動寄通知信到你 GitHub 帳號的信箱（不需要任何密碼）。
 """
 from __future__ import annotations
 
 import html
+import json
 import logging
 import os
 import smtplib
@@ -95,4 +99,58 @@ def send_email(subject: str, body_html: str, attachment: tuple[str, bytes] | Non
             s.login(user, pwd)
             s.send_message(msg)
     log.info("已寄信給 %s", ", ".join(to))
+    return True
+
+
+def smtp_configured() -> bool:
+    return bool(os.environ.get("SMTP_USER") and os.environ.get("SMTP_PASSWORD"))
+
+
+def build_issue_md(title, date, report_url, strat_info, rows_by_code) -> str:
+    lines = [f"## {title} {date}", ""]
+    if report_url:
+        lines += [f"👉 [開啟完整網頁報表（可排序、看走勢圖）]({report_url})", ""]
+    for s in strat_info:
+        codes = s["codes"]
+        lines += [f"### {s['name']}（{len(codes)} 檔）", f"<sub>{s['desc']}</sub>", ""]
+        if not codes:
+            lines += ["今日無符合", ""]
+            continue
+        lines += ["| 股票 | 收盤 | 漲跌% | 成交量(張) | 量比前日 | 量比5日均 |", "|---|--:|--:|--:|--:|--:|"]
+        for c in sorted(codes, key=lambda c: -(rows_by_code[c].get("change_pct") or 0))[:50]:
+            r = rows_by_code[c]
+            lines.append(
+                f"| [{c} {r['name']}]({r['url']}) "
+                f"| {_fmt(r.get('close'), lambda v: f'{v:.2f}')} "
+                f"| {_fmt(r.get('change_pct'), lambda v: f'{v:+.2f}')} "
+                f"| {_fmt(r.get('volume_lots'), lambda v: f'{v:,.0f}')} "
+                f"| {_fmt(r.get('vol_x_prev'), lambda v: f'{v:.1f}×')} "
+                f"| {_fmt(r.get('vol_x_avg5'), lambda v: f'{v:.1f}×')} |"
+            )
+        if len(codes) > 50:
+            lines.append(f"\n…另有 {len(codes) - 50} 檔，請看網頁報表")
+        lines.append("")
+    lines.append("<sub>此訊息由 GitHub Actions 自動產生，僅供參考，不構成投資建議。</sub>")
+    return "\n".join(lines)
+
+
+def create_issue(title: str, body_md: str) -> bool:
+    """在自己的儲存庫開 Issue；GitHub 會寄通知信給儲存庫擁有者。"""
+    import requests
+
+    token = os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if not token or not repo:
+        log.warning("沒有 GITHUB_TOKEN，略過 Issue 通知")
+        return False
+    r = requests.post(
+        f"https://api.github.com/repos/{repo}/issues",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+        data=json.dumps({"title": title, "body": body_md[:65000]}),
+        timeout=30,
+    )
+    if r.status_code >= 300:
+        log.error("開 Issue 失敗：HTTP %s %s", r.status_code, r.text[:200])
+        return False
+    log.info("已建立通知 Issue：%s", r.json().get("html_url"))
     return True
