@@ -1,0 +1,78 @@
+name: 台股每日篩選
+
+on:
+  schedule:
+    # GitHub 用 UTC 時間。07:20 UTC = 台北 15:20；09:40 UTC = 台北 17:40（補跑，已處理過會自動略過）
+    - cron: "20 7 * * 1-5"
+    - cron: "40 9 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "資料日期 YYYY-MM-DD（留空 = 今天）"
+        required: false
+      force:
+        description: "已處理過也強制重跑"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: screener
+  cancel-in-progress: false
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: 抓資料並篩選
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          REPORT_URL: ${{ vars.REPORT_URL }}
+        run: |
+          ARGS=""
+          if [ -n "${{ inputs.date }}" ]; then ARGS="$ARGS --date ${{ inputs.date }}"; fi
+          if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
+          python -m screener.main $ARGS
+
+      - name: 儲存歷史資料與報表
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data site 2>/dev/null || git add data 2>/dev/null || true
+          if git diff --cached --quiet; then echo "沒有變更"; else
+            git commit -m "每日資料 $(TZ=Asia/Taipei date +%F)"
+            git pull --rebase && git push
+          fi
+
+      - name: 準備網頁
+        if: hashFiles('site/index.html') != ''
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: screen
+    runs-on: ubuntu-latest
+    continue-on-error: true   # 沒開 GitHub Pages 也不會讓整個流程失敗
+    environment:
+      name: github-pages
+      url: ${{ steps.d.outputs.page_url }}
+    steps:
+      - id: d
+        uses: actions/deploy-pages@v4
