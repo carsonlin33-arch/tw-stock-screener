@@ -235,8 +235,12 @@ def render_html(title, date, scanned, rows, strat_info, spark_days, archive_link
 def write_site(out_dir: Path, date: str, html_for) -> None:
     """寫出 site/：YYYY-MM-DD.html（當日）、index.html（最新）、archive.html（歷史清單）。"""
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / f"{date}.html").write_text(html_for("<a href='archive.html'>歷史報表</a>"), "utf-8")
-    (out_dir / "index.html").write_text(html_for("<a href='archive.html'>歷史報表</a>"), "utf-8")
+    links = "<a href='live.html'>⚡ 盤中即時</a> ・ <a href='archive.html'>歷史報表</a>"
+    (out_dir / f"{date}.html").write_text(html_for(links), "utf-8")
+    (out_dir / "index.html").write_text(html_for(links), "utf-8")
+    live = Path(__file__).with_name("live_page.html")
+    if live.exists():
+        (out_dir / "live.html").write_text(live.read_text("utf-8"), "utf-8")
     days = sorted((p.stem for p in out_dir.glob("20??-??-??.html")), reverse=True)
     items = "".join(f"<li><a href='{d}.html'>{d}</a></li>" for d in days)
     (out_dir / "archive.html").write_text(
