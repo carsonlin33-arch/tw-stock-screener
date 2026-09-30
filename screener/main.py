@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from . import fetch, notify, positions, report, rules
+from . import enrich, fetch, notify, positions, report, rules, sentiment
 
 ROOT = Path(__file__).resolve().parent.parent
 SITE_DIR = ROOT / "site"
@@ -93,10 +93,48 @@ def main(argv=None) -> int:
     spark_days = int(rcfg.get("spark_days", 60))
     met = rules.metrics(panel, all_codes, spark_days)
     stocks = fetch.load_stock_list(markets)
-    rows = report.build_rows(stocks, met, hits)
+
+    # 3a. 市場情緒
+    senti = {}
+    try:
+        senti = sentiment.from_history(hist)
+        log.info("市場情緒：%s（站上月線 %.0f%%）", senti["level"], senti["above_ma20"])
+    except Exception as e:  # noqa: BLE001
+        log.warning("情緒計算失敗：%s", e)
+
+    # 3b. 消息面／籌碼面（本益比、法人、月營收、注意處置、重大訊息、新聞）
+    xcfg = cfg.get("extras", {})
+    ann_map, news_map = {}, {}
+    if xcfg.get("enabled", True) and not a.no_fetch:
+        try:
+            enrich.refresh(dt.date.fromisoformat(data_date))
+        except Exception as e:  # noqa: BLE001
+            log.warning("消息面資料失敗：%s", e)
+        sess = enrich._session()
+        try:
+            ann = enrich.announcements(sess)
+            for code, g in ann.groupby("code"):
+                ann_map[code] = list(dict.fromkeys(g.title))[:3]
+            log.info("重大訊息 %d 則", len(ann))
+        except Exception as e:  # noqa: BLE001
+            log.warning("重大訊息失敗：%s", e)
+        pri = [c for name in xcfg.get("news_strategies", []) for c in hits.get(name, [])]
+        pri = list(dict.fromkeys(pri))[: int(xcfg.get("news_limit", 40))]
+        names = stocks.set_index("code").name
+        for code in pri:
+            try:
+                items = enrich.news(sess, code, str(names.get(code, "")))
+                if items:
+                    news_map[code] = items
+            except Exception as e:  # noqa: BLE001
+                log.warning("新聞 %s 失敗：%s", code, e)
+        log.info("新聞：%d / %d 檔有近期新聞", len(news_map), len(pri))
+    extras = enrich.load()
+
+    rows = report.build_rows(stocks, met, hits, extras, ann_map, news_map)
     title = rcfg.get("title", "台股每日篩選")
     scanned = int(panel.traded.iloc[-1].sum())
-    html_for = lambda link: report.render_html(title, data_date, scanned, rows, strat_info, spark_days, link)
+    html_for = lambda link: report.render_html(title, data_date, scanned, rows, strat_info, spark_days, link, senti)
     report.write_site(SITE_DIR, data_date, html_for)
 
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
@@ -112,6 +150,8 @@ def main(argv=None) -> int:
     exits, holding = positions.update(
         hist, data_date, ic.get("exit_shrink_ratio", 0.5), int(ic.get("max_hold_days", 20)))
     pos_md = positions.build_md(exits, holding)
+    if senti:
+        pos_md = sentiment.md_line(senti) + "\n" + pos_md
 
     # 5. 通知
     ecfg = cfg.get("email", {})

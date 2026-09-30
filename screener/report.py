@@ -61,12 +61,25 @@ svg.sp{display:block}
 .foot{color:var(--muted);font-size:12px;margin-top:16px}
 .legend{display:flex;gap:14px;color:var(--ink2);font-size:12px;margin:0 0 8px}
 .legend i{display:inline-block;width:14px;height:2px;vertical-align:middle;margin-right:4px}
+.senti{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:18px}
+.senti .hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.senti .lv{font-size:18px;font-weight:650}
+.senti .adv{color:var(--ink2);margin:4px 0 10px}
+.senti .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.senti .k{background:var(--chip);border-radius:8px;padding:6px 10px}
+.senti .k b{display:block;font-size:17px;font-variant-numeric:tabular-nums}
+.senti .k span{font-size:12px;color:var(--muted)}
+.flag{display:inline-block;border-radius:999px;padding:1px 8px;font-size:12px;margin:1px 2px;background:var(--up);color:#fff}
+.news{max-width:260px;white-space:normal;font-size:12px;line-height:1.35}
+.news a{color:var(--ink2);text-decoration:none}.news a:hover{text-decoration:underline}
+.news .more{color:var(--muted)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>__TITLE__</h1>
   <p class="sub">資料日期 __DATE__ ・ 共掃描 __SCANNED__ 檔 ・ __ARCHIVE__</p>
+  <div class="senti" id="senti" hidden></div>
   <div class="tiles" id="tiles"></div>
   <div class="bar">
     <input id="q" placeholder="搜尋代號、名稱或產業…" autocomplete="off">
@@ -77,11 +90,12 @@ svg.sp{display:block}
   <div class="tbl"><table>
     <thead><tr id="hd"></tr></thead><tbody id="bd"></tbody>
   </table><div class="empty" id="empty" hidden>沒有符合條件的股票</div></div>
-  <p class="foot">量比 = 當日成交量 ÷ 比較基準。乖離 = 收盤相對 60 日均線。價格未還原除權息。本報表僅供參考，不構成投資建議。</p>
+  <p class="foot">投信/外資 = 當日買賣超張數。月營收年增 = 最新公布月份與去年同月比較。本益比 10 倍以下的爆量突破，歷史表現較弱。「準備突破觀察」只是觀察名單，本身不是買進訊號。量比 = 當日成交量 ÷ 比較基準。乖離 = 收盤相對 60 日均線。價格未還原除權息。本報表僅供參考，不構成投資建議。</p>
 </div>
 <script>
 const DATA=__DATA__;
 const STRATS=__STRATS__;
+const SENTI=__SENTI__;
 const cols=[
  {k:'code',t:'代號',l:1},{k:'name',t:'名稱 / 產業',l:1},{k:'spark',t:'近__SPARK__日走勢',l:1,ns:1},
  {k:'close',t:'收盤',f:v=>v.toFixed(2)},
@@ -90,6 +104,11 @@ const cols=[
  {k:'vol_x_prev',t:'量比前日',f:v=>v.toFixed(1)+'×'},
  {k:'vol_x_avg5',t:'量比5日均',f:v=>v.toFixed(1)+'×'},
  {k:'bias60',t:'季線乖離%',f:v=>(v>0?'+':'')+v.toFixed(1),c:v=>v>0?'up':v<0?'down':''},
+ {k:'pe',t:'本益比',f:v=>v<=0?'虧損':v.toFixed(1)},
+ {k:'trust',t:'投信(張)',f:v=>(v>0?'+':'')+Math.round(v).toLocaleString(),c:v=>v>0?'up':v<0?'down':''},
+ {k:'foreign',t:'外資(張)',f:v=>(v>0?'+':'')+Math.round(v).toLocaleString(),c:v=>v>0?'up':v<0?'down':''},
+ {k:'rev_yoy',t:'月營收年增%',f:v=>(v>0?'+':'')+v.toFixed(0),c:v=>v>0?'up':v<0?'down':''},
+ {k:'news',t:'消息 / 重大訊息',l:1,ns:1},
  {k:'tags',t:'符合策略',l:1,ns:1},
 ];
 let sel=null,sortK='change_pct',sortD=-1;
@@ -126,10 +145,27 @@ function render(){
    <td class="l code"><a href="${r.url}" target="_blank" rel="noopener">${r.code}</a></td>
    <td class="l"><div class="name">${r.name}</div><div class="meta">${r.market==='TWSE'?'上市':'上櫃'}${r.industry?' ・ '+r.industry:''}</div></td>
    <td class="l">${spark(r.spark,r.spark_ma)}</td>
-   ${cols.slice(3,9).map(c=>{const v=r[c.k];return `<td class="${v!=null&&c.c?c.c(v):''}">${v==null?'—':c.f(v)}</td>`}).join('')}
-   <td class="l">${r.tags.map(t=>`<span class="tag">${t}</span>`).join('')}</td></tr>`).join('');
+   ${cols.slice(3,13).map(c=>{const v=r[c.k];return `<td class="${v!=null&&c.c?c.c(v):''}">${v==null?'—':c.f(v)}</td>`}).join('')}
+   <td class="l news">${newsCell(r)}</td>
+   <td class="l">${r.flag?`<span class="flag">${r.flag}</span>`:''}${r.tags.map(t=>`<span class="tag">${t}</span>`).join('')}</td></tr>`).join('');
 }
-$('q').oninput=render;tiles();render();
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function newsCell(r){
+  const a=(r.ann||[]).map(t=>`<div>📢 ${esc(t)}</div>`);
+  const n=(r.news||[]).slice(0,2).map(x=>`<div><a href="${esc(x.link)}" target="_blank" rel="noopener">${esc(x.title)}</a> <span class="more">${esc(x.when)}</span></div>`);
+  const all=a.concat(n);return all.length?all.join(''):'<span class="more">—</span>';
+}
+function senti(){
+  if(!SENTI||!SENTI.level)return;const s=SENTI;const el=$('senti');el.hidden=false;
+  const k=(v,l)=>`<div class="k"><b>${v}</b><span>${l}</span></div>`;
+  el.innerHTML=`<div class="hd"><span class="lv">${s.icon} 市場情緒：${s.level}</span>
+   <span class="more">站上月線 ${s.above_ma20.toFixed(0)}%${s.above_ma20_5d_ago!=null?`（5 天前 ${s.above_ma20_5d_ago.toFixed(0)}%）`:''}</span></div>
+   <div class="adv">${s.advice}${s.weak_market?' ⚠️ 大盤近 20 日跌超過 3%，回測顯示此時爆量突破平均虧損。':''}</div>
+   <div class="kpis">${k(s.up_pct.toFixed(0)+'%','上漲家數')}${k(s.above_ma60.toFixed(0)+'%','站上季線')}
+   ${k(s.new_high+' / '+s.new_low,'創60日新高 / 新低')}${k(s.limit_up+' / '+s.limit_down,'漲停 / 跌停')}
+   ${k(s.surge_pct.toFixed(1)+'%','爆量家數')}${k((s.mkt20>0?'+':'')+s.mkt20.toFixed(1)+'%','大盤近20日')}</div>`;
+}
+$('q').oninput=render;senti();tiles();render();
 </script>
 </body>
 </html>
@@ -137,14 +173,19 @@ $('q').oninput=render;tiles();render();
 
 
 def _clean(v):
+    if hasattr(v, "item") and not isinstance(v, (list, dict, str)):
+        v = v.item()
     if isinstance(v, float) and (v != v or v in (float("inf"), float("-inf"))):
         return None
     if isinstance(v, list):
         return [_clean(x) for x in v]
+    if isinstance(v, dict):
+        return {k: _clean(x) for k, x in v.items()}
     return v
 
 
-def build_rows(stocks: pd.DataFrame, met: pd.DataFrame, hits: dict[str, list[str]]) -> list[dict]:
+def build_rows(stocks: pd.DataFrame, met: pd.DataFrame, hits: dict[str, list[str]],
+               extras: pd.DataFrame | None = None, ann: dict | None = None, news: dict | None = None) -> list[dict]:
     tags: dict[str, list[str]] = {}
     for name, codes in hits.items():
         for c in codes:
@@ -165,10 +206,19 @@ def build_rows(stocks: pd.DataFrame, met: pd.DataFrame, hits: dict[str, list[str
                 **{k: _clean(v) for k, v in m.items()},
             }
         )
+        r = rows[-1]
+        ex = extras.loc[code] if extras is not None and code in extras.index else None
+        for k in ["pe", "trust", "foreign", "rev_yoy"]:
+            r[k] = _clean(float(ex[k])) if ex is not None and k in ex and pd.notna(ex[k]) else None
+        if r["pe"] is None and ex is not None and "pe" in ex:
+            r["pe"] = -1 if "pb" in ex and pd.notna(ex.get("pb")) else None  # 有資料但沒本益比 = 虧損
+        r["flag"] = ex["flag"] if ex is not None and "flag" in ex and isinstance(ex["flag"], str) else ""
+        r["ann"] = (ann or {}).get(code, [])
+        r["news"] = (news or {}).get(code, [])
     return rows
 
 
-def render_html(title, date, scanned, rows, strat_info, spark_days, archive_link=""):
+def render_html(title, date, scanned, rows, strat_info, spark_days, archive_link="", senti=None):
     js = lambda o: json.dumps(o, ensure_ascii=False).replace("</", "<\\/")
     return (
         TEMPLATE.replace("__TITLE__", title)
@@ -178,6 +228,7 @@ def render_html(title, date, scanned, rows, strat_info, spark_days, archive_link
         .replace("__SPARK__", str(spark_days))
         .replace("__DATA__", js(rows))
         .replace("__STRATS__", js(strat_info))
+        .replace("__SENTI__", js(_clean(senti or {})))
     )
 
 

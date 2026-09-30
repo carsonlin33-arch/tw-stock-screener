@@ -176,6 +176,20 @@ def c_red_candle(p: Panel, a):
     return body >= a.get("min_body", 0.0001)
 
 
+def c_near_high(p: Panel, a):
+    """收盤距離前 days 日最高價在 pct% 以內（尚未突破也算）。"""
+    n = a.get("days", 60)
+    hi = p.high.rolling(n, min_periods=n).max()
+    return p.close >= hi * (1 - a.get("pct", 5) / 100)
+
+
+def c_range_pct(p: Panel, a):
+    """近 days 日振幅（最高-最低）/收盤，介於 min~max %。"""
+    n = a.get("days", 20)
+    r = (p.high.rolling(n, min_periods=n).max() - p.low.rolling(n, min_periods=n).min()) / p.close * 100
+    return (r >= a.get("min", 0)) & (r <= a.get("max", 1000))
+
+
 CONDITIONS = {
     "volume_vs_prev": (c_volume_vs_prev, "量比前日≥{min}倍"),
     "volume_vs_avg": (c_volume_vs_avg, "量比{days}日均量≥{min}倍"),
@@ -195,12 +209,14 @@ CONDITIONS = {
     "new_low": (c_new_low, "創{days}日新低"),
     "up_days": (c_up_days, "連漲{days}天"),
     "red_candle": (c_red_candle, "紅K"),
+    "near_high": (c_near_high, "距{days}日高點{pct}%內"),
+    "range_pct": (c_range_pct, "{days}日振幅{rng}%"),
 }
 
 
 def describe(cond: dict) -> str:
     fn, tpl = CONDITIONS[cond["type"]]
-    args = {"min": "", "max": "", "days": "", "period": "", "periods": ""}
+    args = {"min": "", "max": "", "days": "", "period": "", "periods": "", "pct": ""}
     args.update(cond)
     lo, hi = cond.get("min"), cond.get("max")
     args["rng"] = (

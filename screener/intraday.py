@@ -19,7 +19,7 @@ import pandas as pd
 import requests
 import yaml
 
-from . import fetch, notify, positions
+from . import enrich, fetch, notify, positions, sentiment
 
 log = logging.getLogger("intraday")
 TZ = ZoneInfo("Asia/Taipei")
@@ -147,19 +147,72 @@ def main(argv=None) -> int:
 
     if a.no_notify or (hits.empty and not ic.get("notify_when_empty", False)):
         return 0
+
+    # 情緒與消息面
+    try:
+        senti = sentiment.from_quotes(q, hist)
+    except Exception as e:  # noqa: BLE001
+        log.warning("盤中情緒失敗：%s", e)
+        senti = None
+    extras = enrich.load()
+    sess = enrich._session()
+    ann_map, news_map = {}, {}
+    try:
+        ann = enrich.announcements(sess) if len(hits) else pd.DataFrame(columns=["code", "title"])
+        for code, g in ann[ann.code.isin(hits.code)].groupby("code"):
+            ann_map[code] = list(dict.fromkeys(g.title))[:3]
+    except Exception as e:  # noqa: BLE001
+        log.warning("重大訊息失敗：%s", e)
+    deadline = time.time() + 45  # 消息最多花 45 秒，避免拖延提醒
+    for r in hits.head(15).itertuples():
+        if time.time() > deadline:
+            log.warning("抓新聞超過時間，略過其餘")
+            break
+        try:
+            items = enrich.news(sess, r.code, r.name)
+            if items:
+                news_map[r.code] = items
+        except Exception as e:  # noqa: BLE001
+            log.warning("新聞失敗：%s", e)
+
+    def ex(code, k):
+        if extras.empty or code not in extras.index or k not in extras.columns:
+            return None
+        v = extras.at[code, k]
+        return None if pd.isna(v) else v
     title = f"【盤中進場提醒】{today} {scan_time}｜{len(hits)} 檔"
     lines = [f"## 盤中進場提醒 {today} {scan_time}", ""]
+    if senti:
+        lines += [sentiment.md_line(senti, intraday=True), ""]
     if warn:
         lines += [f"> ⚠️ 大盤過去 20 天下跌 {mkt20:.1f}%。回測顯示大盤弱勢時此策略平均是虧損的，今天建議降低部位或觀望。", ""]
     if hits.empty:
         lines.append("今天沒有符合條件的股票。")
     else:
-        lines += ["| 股票 | 產業 | 現價 | 漲幅 | 目前量(張) | 量 / 5日均量 | 前60日最高 |",
-                  "|---|---|--:|--:|--:|--:|--:|"]
+        lines += ["| 股票 | 產業 | 現價 | 漲幅 | 目前量(張) | 量 / 5日均量 | 本益比 | 投信昨日(張) | 月營收年增 | 備註 |",
+                  "|---|---|--:|--:|--:|--:|--:|--:|--:|---|"]
         for r in hits.itertuples():
             mk = "TW" if stocks.set_index("code").at[r.code, "market"] == "TWSE" else "TWO"
+            pe, tr, rv, fl = ex(r.code, "pe"), ex(r.code, "trust"), ex(r.code, "rev_yoy"), ex(r.code, "flag")
+            note = []
+            if fl:
+                note.append(f"⛔{fl}股")
+            if pe is not None and pe < 10:
+                note.append("低本益比（歷史較弱）")
+            if r.code in ann_map:
+                note.append("📢今日有重大訊息")
             lines.append(f"| [{r.code} {r.name}](https://tw.stock.yahoo.com/quote/{r.code}.{mk}) | {r.industry or ''} | "
-                         f"{r.price:.2f} | {r.chg:+.2f}% | {r.vol_lots:,.0f} | {r.vol_x:.1f}× | {r.hi:.2f} |")
+                         f"{r.price:.2f} | {r.chg:+.2f}% | {r.vol_lots:,.0f} | {r.vol_x:.1f}× | "
+                         f"{f'{pe:.1f}' if pe else '—'} | {f'{tr:+,.0f}' if tr is not None else '—'} | "
+                         f"{f'{rv:+.0f}%' if rv is not None else '—'} | {'、'.join(note)} |")
+        extra = []
+        for r in hits.itertuples():
+            items = [f"📢 {t}" for t in ann_map.get(r.code, [])] + [
+                f"[{n['title']}]({n['link']}) {n['when']}" for n in news_map.get(r.code, [])]
+            if items:
+                extra += [f"**{r.code} {r.name}**", ""] + [f"- {x}" for x in items] + [""]
+        if extra:
+            lines += ["", "### 相關消息（近 3 天）", ""] + extra
     lines += ["", "<sub>條件：目前成交量 ≥ 前 5 日均量 3 倍、漲 3% 以上、現價 > 開盤價、突破前 60 日最高價。"
               "回測做法：收盤前買進，之後收盤量低於爆量日一半時，隔天開盤賣出（收盤後會另外通知出場）。"
               "盤中量尚未含收盤集合競價，實際爆量倍數通常更高。僅供參考，不構成投資建議。</sub>"]
