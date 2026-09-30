@@ -131,6 +131,9 @@ def institutional(s, d: dt.date) -> pd.DataFrame:
         ifo = _foreign_col(f)
         iit = _col(f, "投信", "買賣超")
         itot = _col(f, "三大法人", "買賣超")
+        if ifo is None and len(f) >= 24 and "買賣超" in str(f[4]):
+            # 櫃買新版欄位名稱沒有寫法人別，固定順序：外資(不含自營)、外資自營、外資合計、投信、自營商…、合計
+            ifo, iit, itot = 4, 13, len(f) - 1
         if ic is None:
             continue
         for r in t["data"]:
