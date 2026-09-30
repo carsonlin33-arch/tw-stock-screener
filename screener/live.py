@@ -246,7 +246,7 @@ def alert_md(rows: list[dict], holds: list[dict], senti: dict | None, page: str)
     if holds:
         lines += ["## 🔻 持股跌幅警示", "", "| 股票 | 進場價 | 現價 | 報酬 |", "|---|--:|--:|--:|"]
         lines += [f"| {h['code']} {h['name']} | {h['entry']} | {h['price']} | {h['ret']:+.2f}% |" for h in holds]
-        lines += ["", "<sub>回測的出場規則只有「量縮」，這只是提醒你注意，不代表一定要賣。</sub>", ""]
+        lines += ["", "<sub>這是盤中提醒。收盤若跌破進場價 10% 才觸發停損（隔天開盤賣）；盤中跌深後收回的很常見，不用急著盤中賣。</sub>", ""]
     if rows:
         lines += ["## ⚡ 盤中早期預警（尚未收盤確認）", "",
                   "| 預警時間 | 股票 | 產業 | 現價 | 漲幅 | 目前量(張) | 預估全日量比 | 備註 |",

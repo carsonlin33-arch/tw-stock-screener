@@ -39,7 +39,8 @@ def add_signals(rows: list[dict]) -> None:
     save(df)
 
 
-def update(hist: pd.DataFrame, data_date: str, shrink: float = 0.5, max_hold: int = 20) -> tuple[list[dict], list[dict]]:
+def update(hist: pd.DataFrame, data_date: str, shrink: float = 0.5, max_hold: int = 20,
+           stop_pct: float | None = None) -> tuple[list[dict], list[dict]]:
     """用收盤後的完整資料更新持有中的訊號。回傳 (今天出現出場訊號的, 仍持有的)。"""
     df = load()
     if df.empty:
@@ -68,7 +69,9 @@ def update(hist: pd.DataFrame, data_date: str, shrink: float = 0.5, max_hold: in
         df.at[i, "days_held"] = held
         df.at[i, "est_return_pct"] = round((close / entry - 1) * 100, 2)
         reason = None
-        if surge and vol < shrink * surge:
+        if stop_pct and close <= entry * (1 - stop_pct / 100):
+            reason = f"收盤跌破進場價 {stop_pct:g}%（停損）"
+        elif surge and vol < shrink * surge:
             reason = f"量縮至爆量日 {vol / surge:.0%}"
         elif held >= max_hold:
             reason = f"已持有 {held} 天（上限）"
@@ -109,5 +112,5 @@ def build_md(exits: list[dict], holding: list[dict]) -> str:
                          f"{(str(r['est_return_pct']) + '%') if pd.notna(r.get('est_return_pct')) else '—'} | "
                          f"{(f'{vr:.0%}') if vr else '—'} |")
         lines.append("")
-    lines.append("<sub>出場規則：收盤成交量低於爆量日的一半 → 隔天開盤賣出；最多持有 20 天。清單包含所有盤中提醒過的股票（不代表你實際買了）。</sub>")
+    lines.append("<sub>出場規則：收盤成交量低於爆量日的一半，或收盤跌破進場價 10% → 隔天開盤賣出；最多持有 20 天。清單包含所有盤中提醒過的股票（不代表你實際買了）。</sub>")
     return "\n".join(lines) + "\n\n"

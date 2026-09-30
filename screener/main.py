@@ -148,7 +148,8 @@ def main(argv=None) -> int:
     # 4. 盤中提醒過的股票：檢查量縮出場
     ic = cfg.get("intraday", {})
     exits, holding = positions.update(
-        hist, data_date, ic.get("exit_shrink_ratio", 0.5), int(ic.get("max_hold_days", 20)))
+        hist, data_date, ic.get("exit_shrink_ratio", 0.5), int(ic.get("max_hold_days", 20)),
+        ic.get("stop_loss_pct"))
     pos_md = positions.build_md(exits, holding)
     if senti:
         pos_md = sentiment.md_line(senti) + "\n" + pos_md
