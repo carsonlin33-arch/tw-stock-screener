@@ -1,0 +1,58 @@
+name: 盤中連續監控
+
+on:
+  schedule:
+    # 台北 08:45 啟動（等到開盤），後面幾個是備援（GitHub 排程偶爾延遲或漏跑）。
+    # 與「盤中進場提醒」共用 concurrency，同時間只會有一個在跑；已在跑時其他的會排隊，輪到時發現已結束就直接離開。
+    - cron: "45 0 * * 1-5"
+    - cron: "5 1 * * 1-5"
+    - cron: "35 1 * * 1-5"
+    - cron: "30 2 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      test:
+        description: "測試模式（只掃一次、不等開盤、不通知）"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: intraday
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: 盤中監控
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ inputs.test }}" = "true" ]; then
+            python -m screener.live --test
+          else
+            python -m screener.live
+          fi
+      - name: 記錄提醒過的股票
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for f in data/positions.csv data/intraday_state.json data/live_state.json; do [ -f "$f" ] && git add "$f"; done
+          if git diff --cached --quiet; then echo "沒有變更"; else
+            git commit -m "盤中監控 $(TZ=Asia/Taipei date +%F)"
+            git pull --rebase && git push
+          fi
