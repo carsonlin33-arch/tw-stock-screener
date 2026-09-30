@@ -51,6 +51,10 @@ tr.off td{opacity:.55}
   <div class="kpis" id="mkt"></div>
   <p class="adv" id="adv"></p>
 
+  <h2>🌎 美股隔夜</h2>
+  <p class="hint">費城半導體與台積電 ADR 前一晚的漲跌，常決定台股（尤其電子股）當天開盤方向。</p>
+  <div class="kpis" id="glob"></div>
+
   <h2>🎯 13:12 正式進場提醒</h2>
   <div class="box" id="official"></div>
 
@@ -122,6 +126,10 @@ function render(d){
     k(m.up_pct.toFixed(0)+'%','上漲家數'),k(`${m.limit_up} / ${m.limit_down}`,'漲停 / 跌停'),
     k((d.vol_fraction*100).toFixed(0)+'%','已過全天量（估）')].join(''):'';
   $('adv').textContent=m.advice||'';
+  const g=d.global||{};
+  $('glob').innerHTML=(g.items||[]).map(x=>`<div class="k"><b class="${x.sym==='^VIX'?cls(-x.chg):cls(x.chg)}">${pct(x.chg)}</b><span>${esc(x.name)} ・ ${x.date}</span></div>`).join('')
+    +(g.adr_premium!=null?k(`${g.adr_premium>0?'+':''}${g.adr_premium}%`,'台積電ADR溢價'):'')
+    ||'<span class="meta">明天開盤後顯示</span>';
 
   const o=d.official;
   $('official').innerHTML=!o?'<span class="meta">13:12 掃描後顯示（與回測相同條件：收盤前買進）</span>':

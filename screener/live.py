@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from . import fetch, intraday, notify, positions, sentiment
+from . import fetch, global_mkt, intraday, notify, positions, sentiment
 
 log = logging.getLogger("live")
 TZ = ZoneInfo("Asia/Taipei")
@@ -300,6 +300,12 @@ def main(argv=None) -> int:
     ref = build_ref(hist, int(lc.get("new_high_days", 60)))
     watch = watchlist()
     log.info("觀察名單 %d 檔", len(watch))
+    glob = {}
+    try:
+        tsmc = hist[hist.code == "2330"].sort_values("date").close
+        glob = global_mkt.snapshot(float(tsmc.iloc[-1]) if len(tsmc) else None)
+    except Exception as e:  # noqa: BLE001
+        log.warning("美股隔夜資料失敗：%s", e)
     st = restore_state(today)
     interval = float(lc.get("interval_min", 3)) * 60
     alert_start = _hm(lc.get("alert_start", "09:30"), now)
@@ -369,7 +375,7 @@ def main(argv=None) -> int:
                 "vol_fraction": round(vol_fraction(now), 3), "alert_start": lc.get("alert_start", "09:30"),
                 "market": {k: v for k, v in (senti or {}).items()},
                 "alerts": alerts, "candidates": cands, "holdings": holds, "official": st.get("official"),
-                "quotes": len(q), "state": st,
+                "quotes": len(q), "state": st, "global": glob,
             }
             publish(_clean(payload))
             save_alert_log(today, alerts, st.get("official"))

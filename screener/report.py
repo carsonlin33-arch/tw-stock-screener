@@ -41,11 +41,16 @@ h1{font-size:22px;margin:0 0 2px}
 .bar input{flex:1;min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);
   background:var(--surface);color:var(--ink);font:inherit}
 .bar .cnt{color:var(--ink2)}
-.tbl{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow-x:auto}
+.tbl{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:auto;
+  max-height:calc(100vh - 150px);max-height:calc(100dvh - 150px);overscroll-behavior:contain}
 table{border-collapse:collapse;width:100%;min-width:920px}
 th,td{padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:right}
-th{position:sticky;top:0;background:var(--surface);color:var(--ink2);font-weight:600;
+th{position:sticky;top:0;z-index:2;background:var(--surface);color:var(--ink2);font-weight:600;
   font-size:12px;cursor:pointer;user-select:none}
+/* 代號、名稱固定在左邊，往右滑也看得到是哪一檔 */
+th:nth-child(1),td:nth-child(1){position:sticky;left:0;z-index:1;background:var(--surface);min-width:62px;width:62px}
+th:nth-child(2),td:nth-child(2){position:sticky;left:62px;z-index:1;background:var(--surface);box-shadow:1px 0 0 var(--line)}
+th:nth-child(1),th:nth-child(2){z-index:3}
 th.l,td.l{text-align:left}
 th .arr{color:var(--accent)}
 tr:last-child td{border-bottom:0}
@@ -70,7 +75,9 @@ svg.sp{display:block}
 .senti .k b{display:block;font-size:17px;font-variant-numeric:tabular-nums}
 .senti .k span{font-size:12px;color:var(--muted)}
 .flag{display:inline-block;border-radius:999px;padding:1px 8px;font-size:12px;margin:1px 2px;background:var(--up);color:#fff}
-.news{max-width:260px;white-space:normal;font-size:12px;line-height:1.35}
+.news{min-width:220px;max-width:280px;white-space:normal;font-size:12px;line-height:1.35;cursor:pointer}
+.news .clip{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.news.open .clip{display:block}
 .news a{color:var(--ink2);text-decoration:none}.news a:hover{text-decoration:underline}
 .news .more{color:var(--muted)}
 </style>
@@ -90,7 +97,7 @@ svg.sp{display:block}
   <div class="tbl"><table>
     <thead><tr id="hd"></tr></thead><tbody id="bd"></tbody>
   </table><div class="empty" id="empty" hidden>沒有符合條件的股票</div></div>
-  <p class="foot">投信/外資 = 當日買賣超張數。月營收年增 = 最新公布月份與去年同月比較。本益比 10 倍以下的爆量突破，歷史表現較弱。「準備突破觀察」只是觀察名單，本身不是買進訊號。量比 = 當日成交量 ÷ 比較基準。乖離 = 收盤相對 60 日均線。價格未還原除權息。本報表僅供參考，不構成投資建議。</p>
+  <p class="foot">表格可以直接上下、左右滑動；消息欄點一下展開全文。投信/外資 = 當日買賣超張數。月營收年增 = 最新公布月份與去年同月比較。本益比 10 倍以下的爆量突破，歷史表現較弱。「準備突破觀察」只是觀察名單，本身不是買進訊號。量比 = 當日成交量 ÷ 比較基準。乖離 = 收盤相對 60 日均線。價格未還原除權息。本報表僅供參考，不構成投資建議。</p>
 </div>
 <script>
 const DATA=__DATA__;
@@ -153,7 +160,7 @@ const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',
 function newsCell(r){
   const a=(r.ann||[]).map(t=>`<div>📢 ${esc(t)}</div>`);
   const n=(r.news||[]).slice(0,2).map(x=>`<div><a href="${esc(x.link)}" target="_blank" rel="noopener">${esc(x.title)}</a> <span class="more">${esc(x.when)}</span></div>`);
-  const all=a.concat(n);return all.length?all.join(''):'<span class="more">—</span>';
+  const all=a.concat(n);return all.length?`<div class="clip">${all.join('')}</div>`:'<span class="more">—</span>';
 }
 function senti(){
   if(!SENTI||!SENTI.level)return;const s=SENTI;const el=$('senti');el.hidden=false;
@@ -166,6 +173,7 @@ function senti(){
    ${k(s.surge_pct.toFixed(1)+'%','爆量家數')}${k((s.mkt20>0?'+':'')+s.mkt20.toFixed(1)+'%','大盤近20日')}</div>`;
 }
 $('q').oninput=render;senti();tiles();render();
+$('bd').addEventListener('click',e=>{const td=e.target.closest('td.news');if(td&&!e.target.closest('a'))td.classList.toggle('open');});
 </script>
 </body>
 </html>
