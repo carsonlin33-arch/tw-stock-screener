@@ -59,6 +59,14 @@ strategies:
       - {type: new_high, days: 60}
       - {type: ma_rising, period: 60, days: 5}
 
+  - name: 準備突破觀察
+    enabled: true           # 觀察名單（不是買進訊號）：這類股票 5 天內爆量突破新高的機率約是平均的 3 倍
+    conditions:
+      - {type: near_high, days: 60, pct: 5}
+      - {type: new_high, days: 60, not: true}
+      - {type: ma_rising, period: 60, days: 5}
+      - {type: range_pct, days: 20, min: 8, max: 18}
+
   - name: 創60日新高且多頭排列
     enabled: false          # 改成 true 就會啟用
     conditions:
@@ -92,6 +100,12 @@ strategies:
 #    not: true      反過來，不成立才算
 #  注意：用到 240 日年線時，history_days 要調到 260 以上
 # ------------------------------------------------------------
+
+# 消息面／籌碼面：本益比、三大法人、月營收、注意／處置股、重大訊息、新聞
+extras:
+  enabled: true
+  news_strategies: [爆量突破新高（收盤確認）, 強勢創新高]   # 這些策略的股票會去抓近 3 天新聞
+  news_limit: 40
 
 report:
   title: 台股每日篩選
