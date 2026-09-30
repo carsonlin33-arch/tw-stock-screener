@@ -66,6 +66,15 @@ def _col(fields, *keys, exclude=()):
     return None
 
 
+def _foreign_col(fields):
+    """外資（不含外資自營商）買賣超欄位。"""
+    for i, f in enumerate(str(x).replace(" ", "") for x in fields):
+        g = f.replace("不含外資自營商", "")
+        if "買賣超" in f and ("外陸資" in f or "外資及陸資" in f) and "外資自營商" not in g:
+            return i
+    return None
+
+
 def _tables(j):
     if not j:
         return []
@@ -105,7 +114,7 @@ def institutional(s, d: dt.date) -> pd.DataFrame:
     for t in _tables(j):
         f = t["fields"]
         ic = _col(f, "代號")
-        ifo = _col(f, "外陸資買賣超", exclude=("自營商",)) or _col(f, "外資", "買賣超", exclude=("自營商",))
+        ifo = _foreign_col(f)
         iit = _col(f, "投信", "買賣超")
         itot = _col(f, "三大法人買賣超")
         for r in t["data"]:
@@ -119,7 +128,7 @@ def institutional(s, d: dt.date) -> pd.DataFrame:
     for t in _tables(j):
         f = t["fields"]
         ic = _col(f, "代號")
-        ifo = _col(f, "外資及陸資", "買賣超", exclude=("自營商",)) or _col(f, "外資", "買賣超", exclude=("自營商",))
+        ifo = _foreign_col(f)
         iit = _col(f, "投信", "買賣超")
         itot = _col(f, "三大法人", "買賣超")
         if ic is None:
@@ -148,7 +157,7 @@ def _key(row, *keys):
 
 def revenue(s) -> pd.DataFrame:
     rows = _openapi_rows(s, "https://openapi.twse.com.tw/v1/opendata/t187ap05_L")
-    rows += _openapi_rows(s, "https://www.tpex.org.tw/openapi/v1/mopsfe_t187ap05_O")
+    rows += _openapi_rows(s, "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap05_O")
     out = []
     for r in rows:
         kc = _key(r, "公司代號"); ky = _key(r, "去年同月增減"); km = _key(r, "上月比較增減") or _key(r, "上月增減")
@@ -163,10 +172,10 @@ def revenue(s) -> pd.DataFrame:
 # ------------------------------------------------------------ 重大訊息（當天）
 def announcements(s) -> pd.DataFrame:
     rows = _openapi_rows(s, "https://openapi.twse.com.tw/v1/opendata/t187ap04_L")
-    rows += _openapi_rows(s, "https://www.tpex.org.tw/openapi/v1/mopsfe_t187ap04_O")
+    rows += _openapi_rows(s, "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap04_O")
     out = []
     for r in rows:
-        kc = _key(r, "公司代號"); kt = _key(r, "主旨"); kd = _key(r, "發言日期"); kh = _key(r, "發言時間")
+        kc = _key(r, "公司代號") or _key(r, "SecuritiesCompanyCode"); kt = _key(r, "主旨"); kd = _key(r, "發言日期"); kh = _key(r, "發言時間")
         if not kc or not kt:
             continue
         out.append({"code": str(r[kc]).strip(), "title": str(r[kt]).strip(), "date": r.get(kd), "time": r.get(kh)})
