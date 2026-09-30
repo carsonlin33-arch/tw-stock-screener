@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
 import logging
 import os
 import sys
@@ -84,6 +85,11 @@ def main(argv=None) -> int:
     if now.weekday() >= 5 and not a.test:
         log.info("週末不掃描")
         return 0
+    state_f = root / "data" / "intraday_state.json"
+    today_s = now.date().isoformat()
+    if not a.test and state_f.exists() and json.loads(state_f.read_text()).get("last_run") == today_s:
+        log.info("今天已經掃描過，略過（排程有多個備援時間）")
+        return 0
     if a.wait_until and not a.test:
         hh, mm = map(int, a.wait_until.split(":"))
         target = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
@@ -91,6 +97,11 @@ def main(argv=None) -> int:
         if wait > 0:
             log.info("等待 %.0f 秒到 %s", wait, a.wait_until)
             time.sleep(wait)
+
+    late = dt.datetime.now(TZ).replace(hour=13, minute=28, second=0, microsecond=0)
+    if dt.datetime.now(TZ) > late and not a.test:
+        log.warning("已超過 13:28，來不及在收盤前下單，今天略過盤中提醒")
+        return 0
 
     markets = cfg.get("settings", {}).get("markets", ["TWSE", "TPEX"])
     stocks = fetch.load_stock_list(markets)
@@ -139,6 +150,8 @@ def main(argv=None) -> int:
     warn = mkt20 < ic.get("weak_market_pct", -3)
 
     scan_time = dt.datetime.now(TZ).strftime("%H:%M")
+    if not a.test:
+        state_f.write_text(json.dumps({"last_run": today, "time": scan_time, "hits": len(hits)}))
     if not a.test and len(hits):
         positions.add_signals([{
             "code": r.code, "name": r.name, "industry": r.industry, "signal_date": today, "signal_time": scan_time,
