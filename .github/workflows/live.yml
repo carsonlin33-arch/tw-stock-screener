@@ -51,7 +51,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          for f in data/positions.csv data/intraday_state.json data/live_state.json; do [ -f "$f" ] && git add "$f"; done
+          for f in data/positions.csv data/intraday_state.json data/live_state.json data/alerts; do [ -e "$f" ] && git add "$f"; done
           if git diff --cached --quiet; then echo "沒有變更"; else
             git commit -m "盤中監控 $(TZ=Asia/Taipei date +%F)"
             git pull --rebase && git push
