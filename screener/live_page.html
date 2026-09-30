@@ -55,7 +55,7 @@ tr.off td{opacity:.55}
   <div class="box" id="official"></div>
 
   <h2>⚡ 今日早期預警</h2>
-  <p class="hint">盤中一出現「預估全日量 ≥ 5 日均量 3 倍、漲 3% 以上、突破 60 日新高」就記錄（<span id="astart">09:30</span> 起）。灰色 = 目前已不符合（可能衝高回落）。</p>
+  <p class="hint">盤中一出現「預估全日量 ≥ 5 日均量 3 倍、漲 3% 以上、突破 60 日新高」就記錄（<span id="astart">09:30</span> 起）。灰色 = 目前已不符合（可能衝高回落）。「族群同步」= 同產業其他爆量上漲家數，3～5 家時歷史表現最好（綠色）。</p>
   <div class="tbl" id="alerts"></div>
 
   <h2>🟡 持股即時（盤中提醒過、尚未出場）</h2>
@@ -79,6 +79,7 @@ const pct=v=>v==null?'—':(v>0?'+':'')+v.toFixed(2)+'%';
 const cls=v=>v==null?'':v>0?'up':v<0?'down':'';
 const num=(v,d=2)=>v==null?'—':v.toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
 const link=r=>`<a href="https://tw.stock.yahoo.com/quote/${r.code}.${r.market==='TPEX'?'TWO':'TW'}" target="_blank" rel="noopener">${r.code}</a> ${esc(r.name)}`;
+const peer=r=>!r.peers?'':`<span class="tag${r.peers>=3&&r.peers<=5?' g':''}" title="同產業其他爆量上漲家數。回測：3～5 家時突破表現最好，6 家以上偏過熱">族群同步 ${r.peers} 家</span>`;
 const tpeStr=()=>new Date().toLocaleString('sv-SE',{timeZone:'Asia/Taipei'});
 const tpeNow=()=>new Date(tpeStr().replace(' ','T'));
 
@@ -132,7 +133,7 @@ function render(d){
       <td class="l meta">${esc(r.industry)}</td><td>${num(r.first_price)}</td><td>${num(r.price)}</td>
       <td class="${cls(r.since)}">${pct(r.since)}</td><td class="${cls(r.chg)}">${pct(r.chg)}</td>
       <td>${num(r.vol_lots,0)}</td><td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td>
-      <td class="l">${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${r.hit?'<span class="tag g">仍符合</span>':'<span class="tag">已不符合</span>'}</td></tr>`),
+      <td class="l">${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${peer(r)}${r.hit?'<span class="tag g">仍符合</span>':'<span class="tag">已不符合</span>'}</td></tr>`),
     `今天還沒有早期預警（${d.alert_start||'09:30'} 起記錄）`);
 
   table($('holds'),[['股票','l'],['進場日','l'],['進場價'],['現價'],['報酬'],['今日漲跌'],['目前量(張)'],['預估量 / 爆量日'],['狀態','l']],
@@ -145,7 +146,7 @@ function render(d){
   table($('cands'),[['股票','l'],['產業','l'],['現價'],['漲跌'],['目前量(張)'],['目前量比'],['預估全日量比'],['標記','l']],
     (d.candidates||[]).map(r=>`<tr><td class="l">${link(r)}</td><td class="l meta">${esc(r.industry)}</td><td>${num(r.price)}</td>
       <td class="${cls(r.chg)}">${pct(r.chg)}</td><td>${num(r.vol_lots,0)}</td><td>${r.vol_x==null?'—':r.vol_x.toFixed(1)+'×'}</td>
-      <td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td><td class="l">${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}</td></tr>`),
+      <td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td><td class="l">${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${peer(r)}</td></tr>`),
     '目前沒有符合條件的股票');
 }
 

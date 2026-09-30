@@ -162,6 +162,10 @@ def scan(q: pd.DataFrame, ref: pd.DataFrame, stocks: pd.DataFrame, lc: dict, now
         & (q.price >= lc.get("min_price", 10))
     )
     q["hit"] = cond.fillna(False)
+    # 族群熱度：同產業中其他「預估爆量＋漲 3% 以上」的家數（回測：3~5 家時突破表現最好，6 家以上偏過熱）
+    su = ((q.proj_x >= lc.get("volume_multiple", 3)) & (q.chg >= 3) & (q.vol_lots >= 300)).fillna(False).astype(int)
+    grp = su.groupby(q.industry.where(q.industry != "", "_")).transform("sum")
+    q["peers"] = (grp - su).where(q.industry != "", 0)
     return q
 
 
@@ -210,11 +214,28 @@ def stock_row(r, first: dict | None = None) -> dict:
     r = r._asdict() if hasattr(r, "_asdict") else r.to_dict()  # Series 的 .name 是索引，不能用屬性取
     d = {"code": r["code"], "name": r["name"], "industry": r["industry"], "market": r["market"],
          "price": _num(r["price"]), "chg": _num(r["chg"]), "vol_lots": _num(r["vol_lots"], 0),
-         "vol_x": _num(r["vol_x"], 1), "proj_x": _num(r["proj_x"], 1), "watch": bool(r["watch"]), "hit": bool(r["hit"])}
+         "vol_x": _num(r["vol_x"], 1), "proj_x": _num(r["proj_x"], 1), "watch": bool(r["watch"]), "hit": bool(r["hit"]),
+         "peers": int(r.get("peers") or 0)}
     if first:
         d.update(first_time=first["time"], first_price=_num(first["price"]),
                  since=_num((r["price"] / first["price"] - 1) * 100) if r["price"] and first["price"] else None)
     return d
+
+
+def save_alert_log(today: str, alerts: list[dict], official: dict | None) -> None:
+    """把今天的早期預警存成 data/alerts/YYYY-MM-DD.csv，之後可以統計「早上預警到底準不準」。"""
+    if not alerts:
+        return
+    off = {s["code"] for s in (official or {}).get("stocks", [])}
+    cols = ["code", "name", "industry", "market", "first_time", "first_price", "price", "chg",
+            "vol_lots", "vol_x", "proj_x", "watch", "peers", "hit"]
+    df = pd.DataFrame(alerts).reindex(columns=cols).rename(
+        columns={"price": "last_price", "chg": "last_chg", "hit": "still_hit"})
+    df.insert(0, "date", today)
+    df["official"] = df.code.isin(off)
+    d = ROOT / "data" / "alerts"
+    d.mkdir(parents=True, exist_ok=True)
+    df.sort_values("first_time").to_csv(d / f"{today}.csv", index=False)
 
 
 # ------------------------------------------------------------------ 通知
@@ -232,7 +253,8 @@ def alert_md(rows: list[dict], holds: list[dict], senti: dict | None, page: str)
                   "|---|---|---|--:|--:|--:|--:|---|"]
         for r in rows:
             mk = "TW" if r.get("market") == "TWSE" else "TWO"
-            note = "⭐昨日觀察名單" if r.get("watch") else ""
+            note = "、".join((["⭐昨日觀察名單"] if r.get("watch") else []) +
+                             ([f"族群同步 {r['peers']} 家"] if r.get("peers") else []))
             lines.append(f"| {r['first_time']} | [{r['code']} {r['name']}](https://tw.stock.yahoo.com/quote/{r['code']}.{mk}) | "
                          f"{r.get('industry') or ''} | {r['price']} | {r['chg']:+.2f}% | {r['vol_lots']:,.0f} | "
                          f"{r['proj_x']}× | {note} |")
@@ -350,6 +372,7 @@ def main(argv=None) -> int:
                 "quotes": len(q), "state": st,
             }
             publish(_clean(payload))
+            save_alert_log(today, alerts, st.get("official"))
             STATE_F.write_text(json.dumps(st, ensure_ascii=False), "utf-8")
             log.info("%s 掃描 %d 檔｜符合 %d｜今日預警 %d｜持股 %d（%.0f 秒）",
                      hm, len(q), len(cands), len(alerts), len(holds), time.time() - t0)

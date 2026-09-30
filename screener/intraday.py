@@ -128,7 +128,13 @@ def main(argv=None) -> int:
         stocks[["code", "industry"]], on="code", how="left")
     q["industry"] = q.industry.fillna("")
     q["chg"] = (q.price / q.yclose - 1) * 100
-    q["vol_x"] = q.vol_lots * 1000 / q.avg5
+    q["vol_x_now"] = q.vol_lots * 1000 / q.avg5
+    # 回測用的是「全天」成交量；盤中量還沒出完，改用依時間推估的全日量（config 可關）
+    frac = 1.0
+    if ic.get("use_projected_volume", True):
+        from .live import vol_fraction
+        frac = vol_fraction(dt.datetime.now(TZ))
+    q["vol_x"] = q.vol_x_now / frac
     cond = (
         (q.vol_x >= ic.get("volume_multiple", 3))
         & (q.vol_lots >= ic.get("min_volume_lots", 500))
@@ -202,7 +208,7 @@ def main(argv=None) -> int:
     if hits.empty:
         lines.append("今天沒有符合條件的股票。")
     else:
-        lines += ["| 股票 | 產業 | 現價 | 漲幅 | 目前量(張) | 量 / 5日均量 | 本益比 | 投信昨日(張) | 月營收年增 | 備註 |",
+        lines += ["| 股票 | 產業 | 現價 | 漲幅 | 目前量(張) | 預估全日量 / 5日均量 | 本益比 | 投信昨日(張) | 月營收年增 | 備註 |",
                   "|---|---|--:|--:|--:|--:|--:|--:|--:|---|"]
         for r in hits.itertuples():
             mk = "TW" if stocks.set_index("code").at[r.code, "market"] == "TWSE" else "TWO"
@@ -226,9 +232,9 @@ def main(argv=None) -> int:
                 extra += [f"**{r.code} {r.name}**", ""] + [f"- {x}" for x in items] + [""]
         if extra:
             lines += ["", "### 相關消息（近 3 天）", ""] + extra
-    lines += ["", "<sub>條件：目前成交量 ≥ 前 5 日均量 3 倍、漲 3% 以上、現價 > 開盤價、突破前 60 日最高價。"
+    lines += ["", "<sub>條件：預估全日成交量 ≥ 前 5 日均量 3 倍、漲 3% 以上、現價 > 開盤價、突破前 60 日最高價。"
               "回測做法：收盤前買進，之後收盤量低於爆量日一半時，隔天開盤賣出（收盤後會另外通知出場）。"
-              "盤中量尚未含收盤集合競價，實際爆量倍數通常更高。僅供參考，不構成投資建議。</sub>"]
+              "量比為依時間推估的全日量（13:12 約已成交全天的 9 成），最終以收盤量為準。僅供參考，不構成投資建議。</sub>"]
     body = "\n".join(lines)
     try:
         notify.send(title, body)
