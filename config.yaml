@@ -137,3 +137,24 @@ intraday:
   # 出場（收盤後每日檢查）
   exit_shrink_ratio: 0.5     # 收盤成交量 < 爆量日 × 0.5 → 隔天開盤賣
   max_hold_days: 20
+
+# ------------------------------------------------------------
+#  盤中連續監控（09:00~13:25 每幾分鐘掃描一次，網頁 live.html 即時顯示）
+#  早期預警只是「注意」，回測的進場點仍是 13:12 的正式提醒（收盤前買）
+# ------------------------------------------------------------
+live:
+  enabled: true
+  interval_min: 3            # 每幾分鐘掃描一次（太頻繁可能被證交所擋）
+  alert_start: "09:30"       # 幾點後才開始記錄早期預警（太早預估量不準）
+  official_time: "13:12"     # 正式進場提醒時間
+  end: "13:25"
+  volume_multiple: 3         # 預估全日量 ≥ 5 日均量幾倍
+  min_actual_multiple: 1     # 而且目前「已成交」量至少 = 5 日均量幾倍
+  min_volume_lots: 300
+  min_change_pct: 3
+  max_change_pct: 10.5
+  new_high_days: 60
+  min_price: 10
+  notify: true               # 早期預警要不要寄通知
+  notify_interval_min: 30    # 早期預警最多每幾分鐘彙整寄一次
+  hold_drop_alert_pct: 7     # 持股從進場價跌超過幾 % 立即通知
