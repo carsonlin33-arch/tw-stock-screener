@@ -125,7 +125,8 @@ email:
 # ------------------------------------------------------------
 intraday:
   enabled: true
-  volume_multiple: 3         # 目前成交量 ≥ 前 5 日均量的幾倍
+  volume_multiple: 3         # 預估全日成交量 ≥ 前 5 日均量的幾倍
+  use_projected_volume: true # true = 依時間推估全日量（較接近回測）；false = 用當下實際量（較嚴）
   min_volume_lots: 500       # 目前成交量至少幾張
   min_change_pct: 3          # 漲幅至少 %
   max_change_pct: 10.5
