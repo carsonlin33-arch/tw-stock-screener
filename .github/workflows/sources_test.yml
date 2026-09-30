@@ -1,0 +1,22 @@
+name: 測試資料來源
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "日期 YYYY-MM-DD"
+        default: ""
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: |
+          if [ -n "${{ inputs.date }}" ]; then python -m screener.enrich --test --date ${{ inputs.date }}; else python -m screener.enrich --test; fi
