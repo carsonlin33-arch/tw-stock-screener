@@ -112,5 +112,5 @@ def build_md(exits: list[dict], holding: list[dict]) -> str:
                          f"{(str(r['est_return_pct']) + '%') if pd.notna(r.get('est_return_pct')) else '—'} | "
                          f"{(f'{vr:.0%}') if vr else '—'} |")
         lines.append("")
-    lines.append("<sub>出場規則：收盤成交量低於爆量日的一半，或收盤跌破進場價 10% → 隔天開盤賣出；最多持有 20 天。清單包含所有盤中提醒過的股票（不代表你實際買了）。</sub>")
+    lines.append("<sub>出場規則：收盤成交量低於爆量日的一半（買盤退潮）→ 隔天開盤賣出；最多持有 20 天。清單包含所有盤中提醒過的股票（不代表你實際買了）。</sub>")
     return "\n".join(lines) + "\n\n"
