@@ -42,6 +42,16 @@ tr.off td{opacity:.55}
 .empty{padding:28px;text-align:center;color:var(--muted)}
 .foot{color:var(--muted);font-size:12px;margin-top:20px}
 .err{color:var(--up)}
+/* 浮動橫向捲軸：表格在畫面上、但它自己的捲軸不在畫面內時，固定在螢幕底部 */
+.hbar{position:fixed;bottom:0;z-index:40;display:flex;align-items:center;gap:6px;background:var(--surface);
+  border:1px solid var(--line);border-bottom:0;border-radius:10px 10px 0 0;padding:5px 8px;box-shadow:0 -2px 10px rgba(0,0,0,.12)}
+.hbar[hidden]{display:none}
+.hb-track{flex:1;overflow-x:auto;overflow-y:hidden;height:18px;scrollbar-width:auto;scrollbar-color:var(--ink2) transparent}
+.hb-track::-webkit-scrollbar{height:12px}.hb-track::-webkit-scrollbar-thumb{background:var(--ink2);border-radius:6px}
+.hb-track>div{height:1px}
+.hbar button{border:1px solid var(--line);background:var(--chip);color:var(--ink);border-radius:6px;min-width:36px;height:28px;cursor:pointer;font-size:13px;line-height:1}
+.hbar button:hover{border-color:var(--accent)}
+
 .bchart{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-top:10px}
 .bchart .t{font-size:13px;color:var(--ink2)}.bchart .t b{color:var(--ink)}
 .bchart svg{display:block;width:100%;height:110px}
@@ -100,6 +110,28 @@ function lineSvg(pts,lo,hi,lines,color){
   let d='',pen=0;pts.forEach((v,i)=>{if(v==null){pen=0;return}d+=(pen?'L':'M')+x(i).toFixed(1)+' '+y(Math.max(lo,Math.min(hi,v))).toFixed(1);pen=1;});
   const ls=lines.map(([v,c,t])=>`<line x1="36" x2="${W-4}" y1="${y(v)}" y2="${y(v)}" class="${c}"/><text x="2" y="${y(v)+4}" font-size="11" fill="var(--muted)">${t}</text>`).join('');
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img">${ls}<path d="${d}" fill="none" stroke="${color}" stroke-width="1.8" vector-effect="non-scaling-stroke"/></svg>`;
+}
+// 浮動橫向捲軸（不用滑到表格最底下就能左右捲）
+function floatBar(el){
+  const bar=document.createElement('div');bar.className='hbar';bar.hidden=true;
+  bar.innerHTML='<button type="button" aria-label="往左捲">◀</button><div class="hb-track"><div></div></div><button type="button" aria-label="往右捲">▶</button>';
+  document.body.appendChild(bar);
+  const [bl,br]=bar.querySelectorAll('button'),tr=bar.querySelector('.hb-track'),inner=tr.firstElementChild;
+  bl.onclick=()=>el.scrollBy({left:-el.clientWidth*.6,behavior:'smooth'});
+  br.onclick=()=>el.scrollBy({left:el.clientWidth*.6,behavior:'smooth'});
+  tr.addEventListener('scroll',()=>{if(Math.abs(el.scrollLeft-tr.scrollLeft)>1)el.scrollLeft=tr.scrollLeft;});
+  function upd(){
+    const r=el.getBoundingClientRect(),vh=window.innerHeight;
+    const show=el.scrollWidth>el.clientWidth+2&&r.top<vh-60&&r.bottom>vh+2;
+    bar.hidden=!show;if(!show)return;
+    const left=Math.max(r.left,0),w=Math.min(r.right,window.innerWidth)-left;
+    bar.style.left=left+'px';bar.style.width=w+'px';
+    // 讓捲軸可捲距離和表格一樣，直接同步 scrollLeft
+    inner.style.width=(el.scrollWidth-el.clientWidth+tr.clientWidth)+'px';
+    if(Math.abs(tr.scrollLeft-el.scrollLeft)>1)tr.scrollLeft=el.scrollLeft;
+  }
+  el.addEventListener('scroll',upd);window.addEventListener('scroll',upd,{passive:true});window.addEventListener('resize',upd);
+  new MutationObserver(upd).observe(el,{childList:true,subtree:true});setTimeout(upd,0);
 }
 const tpeStr=()=>new Date().toLocaleString('sv-SE',{timeZone:'Asia/Taipei'});
 const tpeNow=()=>new Date(tpeStr().replace(' ','T'));
@@ -192,6 +224,7 @@ async function tick(){
     render(d);
   }catch(e){$('status').innerHTML=`<span class="err">讀取失敗：${esc(e.message)}，60 秒後重試</span>`;}
 }
+document.querySelectorAll(".tbl").forEach(floatBar);
 tick();setInterval(tick,60000);
 </script>
 </body>
