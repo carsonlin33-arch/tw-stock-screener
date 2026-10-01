@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import yaml
 
-from . import enrich, fetch, groups, notify, positions, report, rules, sentiment, stats, tech
+from . import corpact, enrich, fetch, groups, notify, positions, report, rules, sentiment, stats, tech
 
 ROOT = Path(__file__).resolve().parent.parent
 SITE_DIR = ROOT / "site"
@@ -57,6 +57,13 @@ def main(argv=None) -> int:
         log.error("沒有任何歷史資料")
         return 1
     hist = hist[hist.date <= target.isoformat()]
+    # 減資、變更面額、大比例配股：之前的價格接起來再算（history.csv.gz 本身維持原始價）
+    if not a.no_fetch:
+        try:
+            corpact.update(dt.date.fromisoformat(hist.date.max()))
+        except Exception as e:  # noqa: BLE001
+            log.warning("減資／變更面額資料更新失敗：%s", e)
+    hist = corpact.adjust(hist)
     data_date = hist.date.max()
 
     state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}

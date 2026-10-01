@@ -1,4 +1,4 @@
-name: 對照組 ETF 與除權息補歷史
+name: 對照組 ETF、除權息、減資補歷史
 
 # 0050 等對照組 ETF（data/extras/bench.csv）。每日排程本來就會順便更新，這個是要馬上補、不想等每日排程時手動跑。
 # 只寫 bench.csv、exdiv.csv、exdiv_upcoming.csv，跟其他排程不搶檔案，所以自己一個佇列。
@@ -31,7 +31,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           python -c "import logging,yaml; logging.basicConfig(level=logging.INFO); from screener import fetch; fetch.update_bench(None, int(yaml.safe_load(open('config.yaml'))['settings']['history_days']))"
           python -c "import datetime as dt,logging; logging.basicConfig(level=logging.INFO); from screener import exdiv; exdiv.update(dt.date.today())"
-          for f in data/extras/bench.csv data/extras/exdiv.csv data/extras/exdiv_upcoming.csv; do [ -e "$f" ] && git add "$f"; done
+          python -c "import datetime as dt,logging; logging.basicConfig(level=logging.INFO); from screener import corpact; corpact.update(dt.date.today())"
+          for f in data/extras/bench.csv data/extras/exdiv.csv data/extras/exdiv_upcoming.csv data/extras/corp_actions.csv; do [ -e "$f" ] && git add "$f"; done
           if git diff --cached --quiet; then echo "沒有變更"; else
             git commit -q -m "對照組 ETF／除權息 $(TZ=Asia/Taipei date '+%F %H:%M')"
             # 補明細要十幾分鐘，期間 main 常常有別的提交：重新接上去就好，不用整個重算（這幾個檔以這次的為準）
