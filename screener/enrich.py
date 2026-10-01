@@ -349,14 +349,12 @@ def probe(s, d: dt.date) -> None:
     if d.month == 1:
         roc_y -= 1
     urls = [
-        ("TWSE 融資融券", "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN", {"date": ymd, "selectType": "STOCK", "response": "json"}),
-        ("TPEX 融資融券", "https://www.tpex.org.tw/www/zh-tw/margin/balance", {"date": slash, "response": "json"}),
-        ("TWSE 當沖", "https://www.twse.com.tw/rwd/zh/dayTrading/TWTB4U", {"date": ymd, "selectType": "All", "response": "json"}),
-        ("TPEX 當沖 stat", "https://www.tpex.org.tw/www/zh-tw/intraday/stat", {"date": slash, "response": "json"}),
-        ("TPEX 當沖 trading", "https://www.tpex.org.tw/www/zh-tw/intraday/trading", {"type": "Daily", "date": slash, "response": "json"}),
-        ("MOPS 上市營收", f"https://mopsov.twse.com.tw/nas/t21/sii/t21sc03_{roc_y}_{m}_0.html", None),
-        ("MOPS 上櫃營收", f"https://mopsov.twse.com.tw/nas/t21/otc/t21sc03_{roc_y}_{m}_0.html", None),
-        ("MOPS 上市營收(舊網域)", f"https://mops.twse.com.tw/nas/t21/sii/t21sc03_{roc_y}_{m}_0.html", None),
+        ("TPEX 當沖 stat Daily", "https://www.tpex.org.tw/www/zh-tw/intraday/stat", {"type": "Daily", "date": slash, "response": "json"}),
+        ("TPEX 當沖 stat daily", "https://www.tpex.org.tw/www/zh-tw/intraday/stat", {"type": "daily", "date": slash, "id": "", "response": "json"}),
+        ("TPEX 當沖 dayTrading", "https://www.tpex.org.tw/www/zh-tw/intraday/dayTrading", {"date": slash, "response": "json"}),
+        ("TPEX 當沖 openapi", "https://www.tpex.org.tw/openapi/v1/tpex_intraday_trading_statistics", None),
+        ("TPEX 當沖 openapi2", "https://www.tpex.org.tw/openapi/v1/tpex_daytrading", None),
+        ("MOPS 上市營收 113/9", "https://mopsov.twse.com.tw/nas/t21/sii/t21sc03_113_9_0.html", None),
     ]
     for name, url, params in urls:
         print(f"\n===== {name}  {url}  {params}")
@@ -367,8 +365,27 @@ def probe(s, d: dt.date) -> None:
             continue
         print("  HTTP", r.status_code, "長度", len(r.content), "type", r.headers.get("content-type"))
         if params is None:
-            txt = r.content.decode("big5", errors="replace") if b"charset=big5" in r.content[:2000].lower() else r.text
-            print("  ", re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", txt))[:1500])
+            print("  head", r.content[:400])
+            if r.content[:1] in (b"[", b"{"):
+                j = r.json()
+                print("  json", (j[:2] if isinstance(j, list) else j))
+                continue
+            enc = r.apparent_encoding
+            txt = r.content.decode(r.encoding or "utf-8", errors="replace")
+            print("  encoding", r.encoding, "apparent", enc)
+            i = txt.find("1101")
+            print("  RAW", txt[max(0, i - 2500):i + 600])
+            try:
+                import io
+                tbs = pd.read_html(io.StringIO(txt))
+                print("  read_html 表格數", len(tbs))
+                for t in tbs[:12]:
+                    print("   shape", t.shape, "cols", list(t.columns)[:12])
+                big = [t for t in tbs if t.shape[1] >= 10]
+                if big:
+                    print(big[0].head(4).to_string())
+            except Exception as e:  # noqa: BLE001
+                print("  read_html 失敗", e)
             continue
         try:
             j = r.json()
