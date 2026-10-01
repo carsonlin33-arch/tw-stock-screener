@@ -357,7 +357,18 @@ def probe(s, d: dt.date) -> None:
     roc_y, m = d.year - 1911, d.month - 1 or 12
     if d.month == 1:
         roc_y -= 1
+    y0 = (d - dt.timedelta(days=365))
     urls = [
+        # 除權息（給虛擬帳戶和 0050 對照組算含息報酬）
+        ("TWSE 除權息結果", "https://www.twse.com.tw/rwd/zh/exRight/TWT49U",
+         {"startDate": y0.strftime("%Y%m%d"), "endDate": ymd, "response": "json"}),
+        ("TWSE 除權息預告", "https://www.twse.com.tw/rwd/zh/exRight/TWT48U", {"response": "json"}),
+        ("TWSE openapi 預告", "https://openapi.twse.com.tw/v1/exchangeReport/TWT48U_ALL", None),
+        ("TPEX 除權息結果", "https://www.tpex.org.tw/www/zh-tw/bulletin/exDailyQ",
+         {"startDate": y0.strftime("%Y/%m/%d"), "endDate": slash, "response": "json"}),
+        ("TPEX 除權息結果(舊)", "https://www.tpex.org.tw/web/stock/exright/dailyquo/exDailyQ_result.php",
+         {"l": "zh-tw", "d": f"{y0.year - 1911}/{y0:%m/%d}", "ed": f"{d.year - 1911}/{d:%m/%d}"}),
+        ("TPEX openapi 預告", "https://www.tpex.org.tw/openapi/v1/tpex_exright_prepost", None),
         ("TWSE 融資融券", "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN", {"date": ymd, "selectType": "STOCK", "response": "json"}),
         ("TPEX 融資融券", "https://www.tpex.org.tw/www/zh-tw/margin/balance", {"date": slash, "response": "json"}),
         ("TWSE 當沖", "https://www.twse.com.tw/rwd/zh/dayTrading/TWTB4U", {"date": ymd, "selectType": "All", "response": "json"}),
