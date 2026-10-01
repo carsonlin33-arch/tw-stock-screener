@@ -87,6 +87,33 @@ svg.sp{display:block}
 .news.open .clip{max-height:none}
 .news a{color:var(--ink2);text-decoration:none}.news a:hover{text-decoration:underline}
 .news .more{color:var(--muted)}
+/* 族群強弱 */
+.groups{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:0 0 16px}
+.groups .hd{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline;margin-bottom:8px}
+.groups .hd b{font-size:16px}.groups .hd span{color:var(--muted);font-size:12px}
+.groups .gt{overflow-x:auto}
+.groups table{min-width:640px;width:auto}
+.groups td,.groups th{padding:7px 14px}
+.groups th{position:static;cursor:default}
+.groups tbody tr{cursor:pointer}.groups tbody tr:hover td{background:var(--chip)}
+.groups td:first-child,.groups th:first-child{position:static;width:auto;min-width:0}
+.groups td:nth-child(2),.groups th:nth-child(2){position:static;box-shadow:none}
+.groups .bar2{display:inline-block;height:6px;border-radius:3px;background:var(--accent);opacity:.7;vertical-align:middle;margin-right:6px}
+.groups .more-btn{background:none;border:none;color:var(--accent);cursor:pointer;font:inherit;padding:6px 0 0}
+/* 點名稱跳出 K 線 */
+.nm{cursor:pointer;border-bottom:1px dashed var(--muted)}.nm:hover{color:var(--accent)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
+.modal[hidden]{display:none}
+.mbox{background:var(--surface);color:var(--ink);border-radius:12px;width:min(960px,100%);max-height:100%;overflow:auto;padding:16px 18px}
+.mhd{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.mhd h3{margin:0;font-size:18px}.mhd .x{background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--ink2)}
+.minfo{display:flex;flex-wrap:wrap;gap:6px 16px;color:var(--ink2);font-size:13px;margin:6px 0 10px}
+.minfo b{color:var(--ink)}.minfo a{color:var(--accent)}
+#kc{height:380px;width:100%}
+/* 圖表套件內部用 table 排版，不能套用上面報表表格的樣式 */
+#kc table{min-width:0;width:auto;border-collapse:separate;border-spacing:0}
+#kc td,#kc th,#kc tr{padding:0;border:0;position:static;left:auto;top:auto;min-width:0;width:auto;background:none;box-shadow:none;white-space:normal;text-align:left;z-index:auto}
+.mleg{font-size:12px;color:var(--muted);margin-top:6px}
 </style>
 </head>
 <body>
@@ -95,6 +122,7 @@ svg.sp{display:block}
   <p class="sub">資料日期 __DATE__（__QDAY__）・ 共掃描 __SCANNED__ 檔 ・ __ARCHIVE__</p>
   <div class="senti" id="senti" hidden></div>
   <div class="tiles" id="tiles"></div>
+  <div class="groups" id="groups" hidden></div>
   <div class="bar">
     <input id="q" placeholder="搜尋代號、名稱或產業…" autocomplete="off">
     <span class="cnt" id="cnt"></span>
@@ -105,12 +133,19 @@ svg.sp{display:block}
   <div class="tbl" id="tbl"><table>
     <thead><tr id="hd"></tr></thead><tbody id="bd"></tbody>
   </table><div class="empty" id="empty" hidden>沒有符合條件的股票</div></div>
-  <p class="foot">表格可以直接上下、左右滑動；消息欄點一下展開全文。投信/外資 = 當日買賣超張數。月營收年增 = 最新公布月份與去年同月比較。本益比 10 倍以下的爆量突破，歷史表現較弱。「準備突破觀察」只是觀察名單，本身不是買進訊號。量比 = 當日成交量 ÷ 比較基準。乖離 = 收盤相對 60 日均線。價格未還原除權息。本報表僅供參考，不構成投資建議。</p>
+  <p class="foot">表格可以直接上下、左右滑動；消息欄點一下展開全文。投信/外資 = 當日買賣超張數；連續 = 連續買超或賣超的天數（從 10/1 起累積法人歷史，第一次會往前補抓約 20 天）。RS = 近 3、6 個月漲幅和全市場比較的分數（1~99）。點股票名稱可看 K 線。月營收年增 = 最新公布月份與去年同月比較。本益比 10 倍以下的爆量突破，歷史表現較弱。「準備突破觀察」只是觀察名單，本身不是買進訊號。量比 = 當日成交量 ÷ 比較基準。乖離 = 收盤相對 60 日均線。價格未還原除權息。本報表僅供參考，不構成投資建議。</p>
+  <div class="modal" id="modal" hidden><div class="mbox" role="dialog" aria-modal="true">
+    <div class="mhd"><div><h3 id="mt"></h3><div class="minfo" id="mi"></div></div><button class="x" id="mx" aria-label="關閉">×</button></div>
+    <div id="kc"></div>
+    <div class="mleg">近 120 個交易日 K 線（紅漲綠跌）・ 橘線 = 20 日均線（月線）・ 藍線 = 60 日均線（季線）・ 下方 = 成交量（張）・ 價格未還原除權息</div>
+  </div></div>
 </div>
 <script>
 const DATA=__DATA__;
+const GROUPS=__GROUPS__;
 const STRATS=__STRATS__;
 const SENTI=__SENTI__;
+const stk=v=>v===0?'—':(v>0?'買 ':'賣 ')+Math.abs(v)+' 天';
 const cols=[
  {k:'code',t:'代號',l:1},{k:'name',t:'名稱 / 產業',l:1},{k:'spark',t:'近__SPARK__日走勢',l:1,ns:1},
  {k:'close',t:'收盤',f:v=>v.toFixed(2)},
@@ -119,9 +154,12 @@ const cols=[
  {k:'vol_x_prev',t:'量比前日',f:v=>v.toFixed(1)+'×'},
  {k:'vol_x_avg5',t:'量比5日均',f:v=>v.toFixed(1)+'×'},
  {k:'bias60',t:'季線乖離%',f:v=>(v>0?'+':'')+v.toFixed(1),c:v=>v>0?'up':v<0?'down':''},
+ {k:'rs',t:'RS',f:v=>v.toFixed(0),c:v=>v>=80?'up':v<=30?'down':''},
  {k:'pe',t:'本益比',f:v=>v<=0?'虧損':v.toFixed(1)},
  {k:'trust',t:'投信(張)',f:v=>(v>0?'+':'')+Math.round(v).toLocaleString(),c:v=>v>0?'up':v<0?'down':''},
  {k:'foreign',t:'外資(張)',f:v=>(v>0?'+':'')+Math.round(v).toLocaleString(),c:v=>v>0?'up':v<0?'down':''},
+ {k:'foreign_streak',t:'外資連續',f:stk,c:v=>v>0?'up':v<0?'down':''},
+ {k:'trust_streak',t:'投信連續',f:stk,c:v=>v>0?'up':v<0?'down':''},
  {k:'rev_yoy',t:'月營收年增%',f:v=>(v>0?'+':'')+v.toFixed(0),c:v=>v>0?'up':v<0?'down':''},
  {k:'news',t:'消息 / 重大訊息',l:1,ns:1},
  {k:'tags',t:'符合策略',l:1,ns:1},
@@ -158,9 +196,9 @@ function render(){
   $('empty').hidden=rows.length>0;
   $('bd').innerHTML=rows.map(r=>`<tr>
    <td class="l code"><a href="${r.url}" target="_blank" rel="noopener">${r.code}</a></td>
-   <td class="l"><div class="name">${r.name}</div><div class="meta">${r.market==='TWSE'?'上市':'上櫃'}${r.industry?' ・ '+r.industry:''}</div></td>
+   <td class="l"><div class="name"><span class="nm" data-code="${r.code}" title="看 K 線">${r.name}</span></div><div class="meta">${r.market==='TWSE'?'上市':'上櫃'}${r.industry?' ・ '+r.industry:''}</div></td>
    <td class="l">${spark(r.spark,r.spark_ma)}</td>
-   ${cols.slice(3,13).map(c=>{const v=r[c.k];return `<td class="${v!=null&&c.c?c.c(v):''}">${v==null?'—':c.f(v)}</td>`}).join('')}
+   ${cols.slice(3,16).map(c=>{const v=r[c.k];return `<td class="${v!=null&&c.c?c.c(v):''}">${v==null?'—':c.f(v)}</td>`}).join('')}
    <td class="l news">${newsCell(r)}</td>
    <td class="l tagcol">${r.flag?`<span class="flag">${r.flag}</span>`:''}${r.tags.map(t=>`<span class="tag">${t}</span>`).join('')}</td></tr>`).join('');
 }
@@ -180,7 +218,64 @@ function senti(){
    ${k(s.new_high+' / '+s.new_low,'創60日新高 / 新低')}${k(s.limit_up+' / '+s.limit_down,'漲停 / 跌停')}
    ${k(s.surge_pct.toFixed(1)+'%','爆量家數')}${k((s.mkt20>0?'+':'')+s.mkt20.toFixed(1)+'%','大盤近20日')}</div>`;
 }
-$('q').oninput=render;senti();tiles();render();
+let gAll=false;
+function groupsBox(){
+  if(!GROUPS||!GROUPS.length)return;const el=$('groups');el.hidden=false;
+  const rows=gAll?GROUPS:GROUPS.slice(0,10);const mx=Math.max(...GROUPS.map(g=>Math.abs(g.r20)),1);
+  const p=(v,d=1)=>`<span class="${v>0?'up':v<0?'down':''}">${v>0?'+':''}${v.toFixed(d)}%</span>`;
+  el.innerHTML=`<div class="hd"><b>族群強弱</b><span>依 5 日與 20 日等權平均漲幅綜合排名（近 20 日均量 100 張以上、5 檔以上的產業）・ 點一列只看該族群</span></div>
+  <div class="gt"><table><thead><tr><th class="l">#</th><th class="l">產業</th><th>檔數</th><th>今日</th><th>5 日</th><th class="l">20 日</th><th>站上月線</th><th>創 60 日新高</th><th>爆量</th></tr></thead><tbody>
+  ${rows.map(g=>`<tr data-ind="${esc(g.ind)}"><td class="l">${g.rank}</td><td class="l">${esc(g.ind)}</td><td>${g.n}</td><td>${p(g.r1,2)}</td><td>${p(g.r5)}</td>
+   <td class="l"><span class="bar2" style="width:${Math.round(Math.abs(g.r20)/mx*60)}px;background:${g.r20>=0?'var(--up)':'var(--down)'}"></span>${p(g.r20)}</td>
+   <td>${g.above.toFixed(0)}%</td><td>${g.newhi}</td><td>${g.surge}</td></tr>`).join('')}</tbody></table></div>
+  ${GROUPS.length>10?`<button class="more-btn" id="gmore">${gAll?'只看前 10 名':'顯示全部 '+GROUPS.length+' 個產業'}</button>`:''}`;
+  el.querySelectorAll('tbody tr').forEach(tr=>tr.onclick=()=>{$('q').value=tr.dataset.ind;sel=null;tiles();render();$('q').scrollIntoView({behavior:'smooth',block:'start'});});
+  const b=$('gmore');if(b)b.onclick=()=>{gAll=!gAll;groupsBox();};
+}
+// ---- K 線（點名稱開啟；圖表程式與資料第一次點時才下載）
+let LWC=null,OHLC=null,chart=null;
+const loadJS=src=>new Promise((ok,no)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=no;document.head.appendChild(s);});
+async function openK(code){
+  const r=DATA.find(x=>x.code===code);if(!r)return;
+  $('modal').hidden=false;document.body.style.overflow='hidden';
+  $('mt').innerHTML=`${esc(r.name)} <span style="color:var(--muted);font-size:14px">${r.code} ・ ${r.market==='TWSE'?'上市':'上櫃'}${r.industry?' ・ '+esc(r.industry):''}</span>`;
+  const f=(v,fn)=>v==null?'—':fn(v);
+  $('mi').innerHTML=[`收盤 <b>${f(r.close,v=>v.toFixed(2))}</b>`,`漲跌 <b class="${r.change_pct>0?'up':r.change_pct<0?'down':''}">${f(r.change_pct,v=>(v>0?'+':'')+v.toFixed(2)+'%')}</b>`,
+   `本益比 <b>${f(r.pe,v=>v<=0?'虧損':v.toFixed(1))}</b>`,`月營收年增 <b>${f(r.rev_yoy,v=>(v>0?'+':'')+v.toFixed(0)+'%')}</b>`,
+   `外資 <b>${f(r.foreign,v=>(v>0?'+':'')+Math.round(v).toLocaleString()+' 張')}</b>${r.foreign_streak?`（${stk(r.foreign_streak)}）`:''}`,
+   `投信 <b>${f(r.trust,v=>(v>0?'+':'')+Math.round(v).toLocaleString()+' 張')}</b>${r.trust_streak?`（${stk(r.trust_streak)}）`:''}`,`RS <b>${f(r.rs,v=>v.toFixed(0))}</b>`,
+   `<a href="${r.url}" target="_blank" rel="noopener">Yahoo 股市 ↗</a>`].join('');
+  const box=$('kc');box.innerHTML='<p style="color:var(--muted)">載入中…</p>';
+  try{
+    if(!LWC){await loadJS('https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js').catch(()=>loadJS('https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js'));LWC=window.LightweightCharts;}
+    if(!OHLC)OHLC=await fetch('ohlc.json',{cache:'no-cache'}).then(x=>x.json());
+  }catch(e){box.innerHTML='<p style="color:var(--muted)">K 線載入失敗，請稍後再試。</p>';return;}
+  const k=OHLC.k[code];if(!k){box.innerHTML='<p style="color:var(--muted)">這一檔沒有 K 線資料（舊報表或今天沒成交）。</p>';return;}
+  box.innerHTML='';if(chart){chart.remove();chart=null;}
+  const css=getComputedStyle(document.documentElement),cv=n=>css.getPropertyValue(n).trim();
+  chart=LWC.createChart(box,{width:box.clientWidth,height:box.clientHeight||380,layout:{background:{color:cv('--surface')},textColor:cv('--ink2'),fontSize:12},
+    grid:{vertLines:{color:cv('--line')},horzLines:{color:cv('--line')}},rightPriceScale:{borderColor:cv('--line')},
+    timeScale:{borderColor:cv('--line')},localization:{locale:'zh-TW'}});
+  const up=cv('--up'),dn=cv('--down');
+  const cs=chart.addCandlestickSeries({upColor:up,downColor:dn,borderUpColor:up,borderDownColor:dn,wickUpColor:up,wickDownColor:dn});
+  const bars=[],vols=[],closes=[];
+  OHLC.dates.forEach((d,i)=>{const x=k[i];if(!x)return;bars.push({time:d,open:x[0],high:x[1],low:x[2],close:x[3]});
+    vols.push({time:d,value:x[4],color:(x[3]>=x[0]?up:dn)+'88'});closes.push([d,x[3]]);});
+  cs.setData(bars);
+  const vs=chart.addHistogramSeries({priceScaleId:'',priceFormat:{type:'volume'},lastValueVisible:false,priceLineVisible:false});
+  chart.priceScale('').applyOptions({scaleMargins:{top:.8,bottom:0}});cs.priceScale().applyOptions({scaleMargins:{top:.05,bottom:.25}});
+  vs.setData(vols);
+  const ma=n=>closes.map((c,i)=>i<n-1?null:{time:c[0],value:closes.slice(i-n+1,i+1).reduce((a,b)=>a+b[1],0)/n}).filter(Boolean);
+  chart.addLineSeries({color:'#e08a1e',lineWidth:1,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false}).setData(ma(20));
+  chart.addLineSeries({color:cv('--ma'),lineWidth:1,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false}).setData(ma(60));
+  chart.timeScale().fitContent();
+}
+window.addEventListener('resize',()=>{if(chart&&!$('modal').hidden)chart.applyOptions({width:$('kc').clientWidth});});
+function closeK(){$('modal').hidden=true;document.body.style.overflow='';}
+$('mx').onclick=closeK;$('modal').addEventListener('click',e=>{if(e.target.id==='modal')closeK();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('modal').hidden)closeK();});
+$('bd').addEventListener('click',e=>{const n=e.target.closest('.nm');if(n)openK(n.dataset.code);});
+$('q').oninput=render;senti();tiles();groupsBox();render();
 // 上方捲軸與表格同步
 (function(){const top=$('topscroll'),tb=$('tbl');
  function size(){top.firstElementChild.style.width=tb.scrollWidth+'px';top.hidden=tb.scrollWidth<=tb.clientWidth+2;}
@@ -230,7 +325,7 @@ def build_rows(stocks: pd.DataFrame, met: pd.DataFrame, hits: dict[str, list[str
         )
         r = rows[-1]
         ex = extras.loc[code] if extras is not None and code in extras.index else None
-        for k in ["pe", "trust", "foreign", "rev_yoy"]:
+        for k in ["pe", "trust", "foreign", "rev_yoy", "foreign_streak", "trust_streak"]:
             r[k] = _clean(float(ex[k])) if ex is not None and k in ex and pd.notna(ex[k]) else None
         if r["pe"] is None and ex is not None and "pe" in ex:
             r["pe"] = -1 if "pb" in ex and pd.notna(ex.get("pb")) else None  # 有資料但沒本益比 = 虧損
@@ -250,7 +345,7 @@ def _qday(date: str) -> str:
         return ""
 
 
-def render_html(title, date, scanned, rows, strat_info, spark_days, archive_link="", senti=None):
+def render_html(title, date, scanned, rows, strat_info, spark_days, archive_link="", senti=None, groups=None):
     js = lambda o: json.dumps(o, ensure_ascii=False).replace("</", "<\\/")
     return (
         TEMPLATE.replace("__TITLE__", title)
@@ -262,6 +357,7 @@ def render_html(title, date, scanned, rows, strat_info, spark_days, archive_link
         .replace("__DATA__", js(rows))
         .replace("__STRATS__", js(strat_info))
         .replace("__SENTI__", js(_clean(senti or {})))
+        .replace("__GROUPS__", js(_clean(groups or [])))
     )
 
 

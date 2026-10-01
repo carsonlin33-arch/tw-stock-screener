@@ -163,12 +163,14 @@ def scan(q: pd.DataFrame, ref: pd.DataFrame, stocks: pd.DataFrame, lc: dict, now
     q["vol_x"] = q.vol_lots * 1000 / q.avg5.where(q.avg5 > 0)
     q["proj_x"] = q.vol_x / vol_fraction(now)
     q["watch"] = q.code.isin(watch)
+    # 漲停鎖住：漲幅接近 10% 且現價就是今日最高（一字鎖時開盤＝現價，紅K 條件會失敗，要另外放行）
+    q["locked"] = ((q.chg >= 9.4) & (q.price >= q.high.fillna(q.price))).fillna(False)
     cond = (
         (q.proj_x >= lc.get("volume_multiple", 3))
         & (q.vol_x >= lc.get("min_actual_multiple", 1))
         & (q.vol_lots >= lc.get("min_volume_lots", 300))
         & (q.chg >= lc.get("min_change_pct", 3)) & (q.chg <= lc.get("max_change_pct", 10.5))
-        & (q.price > q.open)
+        & ((q.price > q.open) | q.locked)
         & (q.price > q.hi)
         & (q.price >= lc.get("min_price", 10))
     )
@@ -226,11 +228,13 @@ def stock_row(r, first: dict | None = None) -> dict:
     d = {"code": r["code"], "name": r["name"], "industry": r["industry"], "market": r["market"],
          "price": _num(r["price"]), "chg": _num(r["chg"]), "vol_lots": _num(r["vol_lots"], 0),
          "vol_x": _num(r["vol_x"], 1), "proj_x": _num(r["proj_x"], 1), "watch": bool(r["watch"]), "hit": bool(r["hit"]),
+         "locked": bool(r.get("locked")), "noprice": r["price"] is None or pd.isna(r["price"]),
          "peers": int(r.get("peers") or 0)}
     x = _EXT.get(r["code"])
     if x:
         d.update(pe=_num(x.get("pe"), 1), rev_yoy=_num(x.get("rev_yoy"), 0), foreign=_num(x.get("foreign"), 0),
-                 flag=x.get("flag") if isinstance(x.get("flag"), str) else None)
+                 flag=x.get("flag") if isinstance(x.get("flag"), str) else None,
+                 fstreak=_num(x.get("foreign_streak"), 0), tstreak=_num(x.get("trust_streak"), 0))
     if first:
         d.update(first_time=first["time"], first_price=_num(first["price"]),
                  since=_num((r["price"] / first["price"] - 1) * 100) if r["price"] and first["price"] else None)
@@ -316,7 +320,7 @@ def main(argv=None) -> int:
     qinfo = quarter_info(today, hist.date.unique())
     try:
         ex = enrich.load()
-        cols = [c for c in ["pe", "rev_yoy", "foreign", "flag"] if c in ex.columns]
+        cols = [c for c in ["pe", "rev_yoy", "foreign", "flag", "foreign_streak", "trust_streak"] if c in ex.columns]
         _EXT.update(ex[cols].to_dict("index"))
         log.info("載入本益比／營收／法人資料 %d 檔", len(_EXT))
     except Exception as e:  # noqa: BLE001
