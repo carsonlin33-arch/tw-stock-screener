@@ -427,6 +427,8 @@ def update_history(
         hist = _repair_gaps(hist, stocks, markets)
     if not dates:
         log.info("歷史資料已是最新（%s）", hist.date.max())
+        if source in ("auto", "official"):
+            update_bench(None, keep_days)
         save_history(hist, keep_days)
         return load_history()
 
