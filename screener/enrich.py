@@ -257,7 +257,8 @@ def refresh(d: dt.date, backfill: int = 25) -> dict[str, int]:
         time.sleep(2)
     from . import chips
     for name, fn in [("margin", lambda: chips.update_margin_history(s, d, backfill)),
-                     ("rev_hist", lambda: {"rev_months": chips.update_revenue_history(s, d)})]:
+                     ("rev_hist", lambda: {"rev_months": chips.update_revenue_history(s, d)}),
+                     ("exdiv", lambda: _exdiv().update(d, s))]:
         try:
             got.update(fn())
         except Exception as e:  # noqa: BLE001
@@ -423,6 +424,11 @@ def probe(s, d: dt.date) -> None:
                 v = j[k]
                 print(f"  {k}:", v[:2] if isinstance(v, list) else v)
         time.sleep(3)
+
+
+def _exdiv():
+    from . import exdiv
+    return exdiv
 
 
 def _chips():

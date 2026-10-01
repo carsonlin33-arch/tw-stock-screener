@@ -1,7 +1,7 @@
-name: 對照組 ETF 補歷史
+name: 對照組 ETF 與除權息補歷史
 
 # 0050 等對照組 ETF（data/extras/bench.csv）。每日排程本來就會順便更新，這個是要馬上補、不想等每日排程時手動跑。
-# 只寫 bench.csv，跟其他排程不搶檔案，所以自己一個佇列。
+# 只寫 bench.csv、exdiv.csv、exdiv_upcoming.csv，跟其他排程不搶檔案，所以自己一個佇列。
 on:
   workflow_dispatch:
 
@@ -32,9 +32,10 @@ jobs:
           ok=0; for i in 1 2 3 4 5; do
             git fetch -q origin main && git reset -q --hard origin/main
             python -c "import logging,yaml; logging.basicConfig(level=logging.INFO); from screener import fetch; fetch.update_bench(None, int(yaml.safe_load(open('config.yaml'))['settings']['history_days']))"
-            git add data/extras/bench.csv
+            python -c "import datetime as dt,logging; logging.basicConfig(level=logging.INFO); from screener import exdiv; exdiv.update(dt.date.today())"
+            for f in data/extras/bench.csv data/extras/exdiv.csv data/extras/exdiv_upcoming.csv; do [ -e "$f" ] && git add "$f"; done
             if git diff --cached --quiet; then echo "沒有變更"; ok=1; break; fi
-            git commit -q -m "對照組 ETF $(TZ=Asia/Taipei date '+%F %H:%M')"
+            git commit -q -m "對照組 ETF／除權息 $(TZ=Asia/Taipei date '+%F %H:%M')"
             if git push -q origin HEAD:main; then ok=1; break; fi
             sleep 10
           done; [ "$ok" = 1 ]
