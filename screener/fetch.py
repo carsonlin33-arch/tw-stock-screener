@@ -368,7 +368,7 @@ def _extend_back(hist: pd.DataFrame, stocks: pd.DataFrame, markets: list[str], k
     log.info("歷史只有 %d 天（設定 %d 天），往前補抓 %d 個工作日（%s ~ %s）", have, keep_days, len(days), days[0], days[-1])
     try:
         old = fetch_official_range(days, markets)
-    except SourceUnavailable as e:
+    except Exception as e:  # noqa: BLE001 — 補抓失敗不能影響今天的篩選
         log.warning("往前補抓失敗，下次再試：%s", e)
         return hist
     if old.empty:

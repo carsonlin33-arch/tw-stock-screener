@@ -210,11 +210,13 @@ def scan(q: pd.DataFrame, ref: pd.DataFrame, stocks: pd.DataFrame, lc: dict, now
     q["peers"] = (grp - su).where(q.industry != "", 0)
     surging = q[su.astype(bool) & (q.industry != "")].groupby("industry").code.apply(list).to_dict()
     q["peers_list"] = [[c for c in surging.get(i, []) if c != code] for code, i in zip(q.code, q.industry)]
+    q["tpl"] = None
     if _TPL_REF is not None:
-        qi = q.set_index("code")
-        q["tpl"] = tech.tpl_live(qi.price, qi.high, qi["low"] if "low" in qi else qi.price, _TPL_REF).reindex(q.code).values
-    else:
-        q["tpl"] = None
+        try:
+            qi = q.set_index("code")
+            q["tpl"] = tech.tpl_live(qi.price, qi.high, qi["low"] if "low" in qi else qi.price, _TPL_REF).reindex(q.code).values
+        except Exception as e:  # noqa: BLE001
+            log.warning("盤中趨勢樣板失敗：%s", e)
     return q
 
 
