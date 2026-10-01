@@ -171,18 +171,30 @@ def fetch_upcoming(s) -> pd.DataFrame:
 
 
 def bench_tr() -> int:
-    """bench.csv 加 tr（含息指數）：收盤 × 之前（含當天）所有除權息 factor 連乘。"""
+    """bench.csv 的 tr（含息指數）：自己用收盤＋除權息 factor 算，不是 Yahoo 的 adjclose。
+    tr_t = tr_(t-1) × close_t × factor_t ÷ close_(t-1)，factor 只在除權息當天 ≠ 1（= 除權息前收盤 ÷ 參考價）。
+    已經算過的 tr 不再改（之後舊資料滾出 260 天視窗，也不會讓整條重新起算、基準漂移）；只補沒有 tr 的新日子。
+    第一次（沒有 tr 欄）從檔案第一天起算：tr = 收盤。"""
     if not BENCH.exists() or not EXDIV.exists():
         return 0
     b = pd.read_csv(BENCH, dtype={"code": str})
     ex = pd.read_csv(EXDIV, dtype={"code": str})
-    parts = []
+    if "tr" not in b.columns:
+        b["tr"] = np.nan
+    parts, n = [], 0
     for code, g in b.sort_values("date").groupby("code"):
-        f = ex[ex.code == code].set_index("date").factor
-        step = g.date.map(f).fillna(1.0).astype(float)
-        parts.append(g.assign(tr=(g.close * np.cumprod(step.values)).round(4)))
+        f = ex[ex.code == code].drop_duplicates("date").set_index("date").factor
+        g = g.reset_index(drop=True)
+        tr = g.tr.astype(float).to_numpy(copy=True)
+        close, step = g.close.astype(float).values, g.date.map(f).fillna(1.0).astype(float).values
+        for i in range(len(g)):
+            if not np.isnan(tr[i]):
+                continue
+            tr[i] = close[i] if i == 0 or np.isnan(tr[i - 1]) else tr[i - 1] * close[i] * step[i] / close[i - 1]
+            n += 1
+        parts.append(g.assign(tr=np.round(tr, 4)))
     pd.concat(parts).to_csv(BENCH, index=False)
-    return len(b)
+    return n
 
 
 def update(today: dt.date, s=None) -> dict:
