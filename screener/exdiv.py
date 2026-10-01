@@ -156,6 +156,18 @@ def fill_details(s, df: pd.DataFrame, old: pd.DataFrame, limit: int = 600) -> in
     return n
 
 
+def exact_factor(df: pd.DataFrame) -> None:
+    """factor 改用公告的現金股利／配股算：前收 ÷ ((前收 − 現金股利) ÷ (1 + 配股率))。
+    證交所的參考價會掃到檔位（台積電 901 − 4.000138 = 896.999862，公布成 896.99），低價股誤差更大。
+    有現金增資（rights_ratio > 0）的維持用參考價，因為認購要花錢，不是白拿的。
+    已經存在的 bench tr 不會因此改變（tr 只往後接），只影響之後的新日子。"""
+    ok = df.cash_div.notna() & df.stock_ratio.notna() & (df.rights_ratio.fillna(0) == 0)
+    base = (df.prev_close - df.cash_div) / (1 + df.stock_ratio)
+    # 算出來的價格要跟參考價差在掃檔位的範圍內才用；差太多代表還有別的東西（特別股、減資…），維持用參考價
+    ok &= (base > 0) & ((base - df.ref_price).abs() <= np.maximum(0.011, df.ref_price * 0.002))
+    df.loc[ok, "factor"] = (df.prev_close / base)[ok].round(8)
+
+
 def fetch_upcoming(s) -> pd.DataFrame:
     out = []
     for r in _openapi_rows(s, "https://openapi.twse.com.tw/v1/exchangeReport/TWT48U_ALL"):
@@ -218,6 +230,7 @@ def update(today: dt.date, s=None) -> dict:
     df = pd.concat([old, *new], ignore_index=True).drop_duplicates(["date", "code"], keep="last")
     df = df[df.date >= (today - dt.timedelta(days=KEEP_DAYS)).isoformat()].sort_values(["date", "code"]).reset_index(drop=True)
     got_detail = fill_details(s, df, old)
+    exact_factor(df)
     DIR.mkdir(parents=True, exist_ok=True)
     df.reindex(columns=COLS).to_csv(EXDIV, index=False)
     got = {"exdiv": len(df), "exdiv_new": int(sum(len(n) for n in new)), "exdiv_detail": got_detail,
