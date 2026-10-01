@@ -20,7 +20,7 @@ import pandas as pd
 import requests
 import yaml
 
-from . import enrich, fetch, notify, positions, sentiment
+from . import corpact, enrich, fetch, notify, positions, sentiment
 
 log = logging.getLogger("intraday")
 TZ = ZoneInfo("Asia/Taipei")
@@ -134,7 +134,7 @@ def main(argv=None) -> int:
     stocks = fetch.load_stock_list(markets)
     hist = fetch.load_history()
     today = dt.datetime.now(TZ).date().isoformat()
-    hist = hist[hist.date < today]
+    hist = corpact.adjust(hist[hist.date < today], upto=today)  # 減資／變更面額：舊價接起來，今天恢復買賣的也算
     g = hist.sort_values("date").groupby("code")
     nh = int(ic.get("new_high_days", 60))
     ref = pd.DataFrame({

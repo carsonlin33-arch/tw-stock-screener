@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from . import enrich, fetch, global_mkt, intraday, notify, positions, rules, sentiment, tech
+from . import corpact, enrich, fetch, global_mkt, intraday, notify, positions, rules, sentiment, tech
 from .qday import quarter_info
 
 log = logging.getLogger("live")
@@ -414,7 +414,7 @@ def main(argv=None) -> int:
     markets = cfg.get("settings", {}).get("markets", ["TWSE", "TPEX"])
     stocks = fetch.load_stock_list(markets)
     hist = fetch.load_history()
-    hist = hist[hist.date < today]
+    hist = corpact.adjust(hist[hist.date < today], upto=today)  # 減資／變更面額：舊價接起來，今天恢復買賣的也算
     ref = build_ref(hist, int(lc.get("new_high_days", 60)))
     breadth_hist = load_daily_refs(hist)
     bh = breadth_hist[breadth_hist.date < today].tail(120)[["date", "above_ma20", "mkt20"]].values.tolist() if breadth_hist is not None else []
