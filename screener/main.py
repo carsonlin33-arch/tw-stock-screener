@@ -174,9 +174,10 @@ def main(argv=None) -> int:
     rows = report.build_rows(stocks, met, hits, extras, ann_map, news_map)
     title = rcfg.get("title", "台股每日篩選")
     scanned = int(panel.traded.iloc[-1].sum())
-    html_for = lambda link: report.render_html(title, data_date, scanned, rows, strat_info, spark_days, link, senti, groups_data,
-                                                 breadth_rows, large, astats)
-    report.write_site(SITE_DIR, data_date, html_for)
+    page = dict(title=title, date=data_date, scanned=scanned, rows=rows, strat_info=strat_info, spark_days=spark_days,
+                senti=senti, groups=groups_data, breadth=breadth_rows, large=large, astats=astats)
+    report.save_inputs(ROOT / "data" / "report_data.json", **page)
+    report.write_site(SITE_DIR, data_date, lambda link: report.render_html(archive_link=link, **page))
 
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(
