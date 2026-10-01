@@ -24,7 +24,8 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from . import fetch, global_mkt, intraday, notify, positions, sentiment
+from . import enrich, fetch, global_mkt, intraday, notify, positions, sentiment
+from .qday import quarter_info
 
 log = logging.getLogger("live")
 TZ = ZoneInfo("Asia/Taipei")
@@ -143,9 +144,19 @@ def restore_state(today: str) -> dict:
 
 
 # ------------------------------------------------------------------ 單次掃描
+_LAST_PX: dict[str, float] = {}
+_EXT: dict[str, dict] = {}  # 本益比、月營收年增、外資買賣超、注意/處置（前一天的資料）
+
+
 def scan(q: pd.DataFrame, ref: pd.DataFrame, stocks: pd.DataFrame, lc: dict, now: dt.datetime,
          watch: set[str]) -> pd.DataFrame:
-    q = q.drop_duplicates("code").merge(ref, left_on="code", right_index=True, how="left").merge(
+    # 這一輪沒抓到成交價的股票，沿用上一輪的價格（避免顯示「—」或被誤判為已不符合）
+    q = q.drop_duplicates("code").copy()
+    miss = q.price.isna()
+    if miss.any():
+        q.loc[miss, "price"] = q.loc[miss, "code"].map(_LAST_PX)
+    _LAST_PX.update({c: float(p) for c, p in zip(q.code, q.price) if pd.notna(p)})
+    q = q.merge(ref, left_on="code", right_index=True, how="left").merge(
         stocks[["code", "industry", "market"]].drop_duplicates("code"), on="code", how="left")
     q["industry"] = q.industry.fillna("")
     q["chg"] = (q.price / q.yclose - 1) * 100
@@ -216,6 +227,10 @@ def stock_row(r, first: dict | None = None) -> dict:
          "price": _num(r["price"]), "chg": _num(r["chg"]), "vol_lots": _num(r["vol_lots"], 0),
          "vol_x": _num(r["vol_x"], 1), "proj_x": _num(r["proj_x"], 1), "watch": bool(r["watch"]), "hit": bool(r["hit"]),
          "peers": int(r.get("peers") or 0)}
+    x = _EXT.get(r["code"])
+    if x:
+        d.update(pe=_num(x.get("pe"), 1), rev_yoy=_num(x.get("rev_yoy"), 0), foreign=_num(x.get("foreign"), 0),
+                 flag=x.get("flag") if isinstance(x.get("flag"), str) else None)
     if first:
         d.update(first_time=first["time"], first_price=_num(first["price"]),
                  since=_num((r["price"] / first["price"] - 1) * 100) if r["price"] and first["price"] else None)
@@ -298,6 +313,14 @@ def main(argv=None) -> int:
     hist = fetch.load_history()
     hist = hist[hist.date < today]
     ref = build_ref(hist, int(lc.get("new_high_days", 60)))
+    qinfo = quarter_info(today, hist.date.unique())
+    try:
+        ex = enrich.load()
+        cols = [c for c in ["pe", "rev_yoy", "foreign", "flag"] if c in ex.columns]
+        _EXT.update(ex[cols].to_dict("index"))
+        log.info("載入本益比／營收／法人資料 %d 檔", len(_EXT))
+    except Exception as e:  # noqa: BLE001
+        log.warning("消息面資料載入失敗：%s", e)
     watch = watchlist()
     log.info("觀察名單 %d 檔", len(watch))
     glob = {}
@@ -375,7 +398,7 @@ def main(argv=None) -> int:
                 "vol_fraction": round(vol_fraction(now), 3), "alert_start": lc.get("alert_start", "09:30"),
                 "market": {k: v for k, v in (senti or {}).items()},
                 "alerts": alerts, "candidates": cands, "holdings": holds, "official": st.get("official"),
-                "quotes": len(q), "state": st, "global": glob,
+                "quotes": len(q), "state": st, "global": glob, "qinfo": qinfo,
             }
             publish(_clean(payload))
             save_alert_log(today, alerts, st.get("official"))

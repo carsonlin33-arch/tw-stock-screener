@@ -116,7 +116,7 @@ function render(d){
   else if(inSession&&age<=10){dot='live';txt='監控中';}
   else if(inSession){dot='stale';txt=`資料延遲（${age} 分鐘沒更新）`;}
   else{txt='今日盤中監控已結束，收盤結果請看每日報表（約 15:30 後）';}
-  $('status').innerHTML=`<span class="dot ${dot}"></span>${txt} ・ 最後更新 ${d.updated.slice(5,16)}（${age<1?'剛剛':age+' 分鐘前'}）・ 第 ${d.scans} 次掃描 ・ 共 ${d.quotes} 檔 ・ <a href="index.html">每日報表</a>`;
+  $('status').innerHTML=`<span class="dot ${dot}"></span>${txt}${d.qinfo?' ・ <b>'+d.qinfo.text+'</b>':''} ・ 最後更新 ${d.updated.slice(5,16)}（${age<1?'剛剛':age+' 分鐘前'}）・ 第 ${d.scans} 次掃描 ・ 共 ${d.quotes} 檔 ・ <a href="index.html">每日報表</a>`;
   $('astart').textContent=d.alert_start||'09:30';
 
   const m=d.market||{};
@@ -136,12 +136,17 @@ function render(d){
     o.stocks&&o.stocks.length?`<b>${o.time}</b> 共 ${o.stocks.length} 檔：`+o.stocks.map(s=>`<span class="tag r">${s.code} ${esc(s.name)} ${num(s.price)}</span>`).join(''):
     `<b>${o.time}</b> 今天沒有符合正式條件的股票`;
 
-  table($('alerts'),[['預警時間','l'],['股票','l'],['產業','l'],['預警價'],['現價'],['預警後'],['今日漲跌'],['目前量(張)'],['預估全日量比'],['標記','l']],
+  // 本益比（虧損或無資料顯示「—」）、月營收年增%、外資前一日買賣超（張）
+  const fund=r=>`<td>${r.pe==null?'—':r.pe.toFixed(1)}</td>`+
+    `<td class="${cls(r.rev_yoy)}">${r.rev_yoy==null?'—':(r.rev_yoy>0?'+':'')+r.rev_yoy.toFixed(0)+'%'}</td>`+
+    `<td class="${cls(r.foreign)}">${r.foreign==null?'—':(r.foreign>0?'+':'')+Math.round(r.foreign).toLocaleString()}</td>`;
+  const flag=r=>r.flag?`<span class="tag r">${esc(r.flag)}</span>`:'';
+  table($('alerts'),[['預警時間','l'],['股票','l'],['產業','l'],['預警價'],['現價'],['預警後'],['今日漲跌'],['目前量(張)'],['預估全日量比'],['本益比'],['營收年增'],['外資(張)'],['標記','l']],
     (d.alerts||[]).map(r=>`<tr class="${r.hit?'':'off'}"><td class="l">${r.first_time}</td><td class="l">${link(r)}</td>
       <td class="l meta">${esc(r.industry)}</td><td>${num(r.first_price)}</td><td>${num(r.price)}</td>
       <td class="${cls(r.since)}">${pct(r.since)}</td><td class="${cls(r.chg)}">${pct(r.chg)}</td>
-      <td>${num(r.vol_lots,0)}</td><td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td>
-      <td class="l">${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${peer(r)}${r.hit?'<span class="tag g">仍符合</span>':'<span class="tag">已不符合</span>'}</td></tr>`),
+      <td>${num(r.vol_lots,0)}</td><td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td>${fund(r)}
+      <td class="l">${flag(r)}${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${peer(r)}${r.hit?'<span class="tag g">仍符合</span>':'<span class="tag">已不符合</span>'}</td></tr>`),
     `今天還沒有早期預警（${d.alert_start||'09:30'} 起記錄）`);
 
   table($('holds'),[['股票','l'],['進場日','l'],['進場價'],['現價'],['報酬'],['今日漲跌'],['目前量(張)'],['預估量 / 爆量日'],['狀態','l']],
@@ -151,10 +156,10 @@ function render(d){
       <td class="l">${r.status==='可能量縮出場'?'<span class="tag w">可能量縮出場</span>':`<span class="tag">${esc(r.status)}</span>`}${r.drop_alert?'<span class="tag r">跌幅警示</span>':''}</td></tr>`),
     '目前沒有持有中的股票');
 
-  table($('cands'),[['股票','l'],['產業','l'],['現價'],['漲跌'],['目前量(張)'],['目前量比'],['預估全日量比'],['標記','l']],
+  table($('cands'),[['股票','l'],['產業','l'],['現價'],['漲跌'],['目前量(張)'],['目前量比'],['預估全日量比'],['本益比'],['營收年增'],['外資(張)'],['標記','l']],
     (d.candidates||[]).map(r=>`<tr><td class="l">${link(r)}</td><td class="l meta">${esc(r.industry)}</td><td>${num(r.price)}</td>
       <td class="${cls(r.chg)}">${pct(r.chg)}</td><td>${num(r.vol_lots,0)}</td><td>${r.vol_x==null?'—':r.vol_x.toFixed(1)+'×'}</td>
-      <td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td><td class="l">${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${peer(r)}</td></tr>`),
+      <td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td>${fund(r)}<td class="l">${flag(r)}${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${peer(r)}</td></tr>`),
     '目前沒有符合條件的股票');
 }
 

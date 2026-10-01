@@ -26,7 +26,7 @@ TEMPLATE = r"""<!doctype html>
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);
   font:14px/1.5 -apple-system,"PingFang TC","Microsoft JhengHei","Noto Sans TC",sans-serif}
-.wrap{max-width:1180px;margin:0 auto;padding:24px 16px 48px}
+.wrap{max-width:1680px;margin:0 auto;padding:24px 16px 48px}
 h1{font-size:22px;margin:0 0 2px}
 .sub{color:var(--ink2);margin:0 0 20px}
 .sub a{color:var(--accent)}
@@ -41,6 +41,12 @@ h1{font-size:22px;margin:0 0 2px}
 .bar input{flex:1;min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);
   background:var(--surface);color:var(--ink);font:inherit}
 .bar .cnt{color:var(--ink2)}
+/* 表格上方的橫向捲軸：不用滑到表格最下面就能往右拉 */
+.topscroll{overflow-x:auto;overflow-y:hidden;height:16px;margin-bottom:4px}
+.topscroll>div{height:1px}
+.topscroll{scrollbar-width:thin;scrollbar-color:var(--ink2) transparent}
+.topscroll::-webkit-scrollbar{height:10px}.topscroll::-webkit-scrollbar-thumb{background:var(--ink2);border-radius:5px;opacity:.6}
+.topscroll[hidden]{display:none}
 .tbl{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:auto;
   max-height:calc(100vh - 150px);max-height:calc(100dvh - 150px);overscroll-behavior:contain}
 table{border-collapse:collapse;width:100%;min-width:920px}
@@ -59,6 +65,7 @@ td{font-variant-numeric:tabular-nums}
 .name{color:var(--ink)}
 .meta{color:var(--muted);font-size:12px}
 .up{color:var(--up)}.down{color:var(--down)}
+.tagcol{white-space:normal;min-width:180px;max-width:240px;line-height:1.9}
 .tag{display:inline-block;background:var(--chip);border-radius:999px;padding:1px 8px;
   font-size:12px;margin:1px 2px;color:var(--ink2)}
 svg.sp{display:block}
@@ -75,9 +82,9 @@ svg.sp{display:block}
 .senti .k b{display:block;font-size:17px;font-variant-numeric:tabular-nums}
 .senti .k span{font-size:12px;color:var(--muted)}
 .flag{display:inline-block;border-radius:999px;padding:1px 8px;font-size:12px;margin:1px 2px;background:var(--up);color:#fff}
-.news{min-width:220px;max-width:280px;white-space:normal;font-size:12px;line-height:1.35;cursor:pointer}
-.news .clip{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-.news.open .clip{display:block}
+.news{min-width:260px;max-width:320px;white-space:normal;font-size:12px;line-height:1.35;cursor:pointer}
+.news .clip{max-height:4.1em;overflow:hidden}
+.news.open .clip{max-height:none}
 .news a{color:var(--ink2);text-decoration:none}.news a:hover{text-decoration:underline}
 .news .more{color:var(--muted)}
 </style>
@@ -85,7 +92,7 @@ svg.sp{display:block}
 <body>
 <div class="wrap">
   <h1>__TITLE__</h1>
-  <p class="sub">資料日期 __DATE__ ・ 共掃描 __SCANNED__ 檔 ・ __ARCHIVE__</p>
+  <p class="sub">資料日期 __DATE__（__QDAY__）・ 共掃描 __SCANNED__ 檔 ・ __ARCHIVE__</p>
   <div class="senti" id="senti" hidden></div>
   <div class="tiles" id="tiles"></div>
   <div class="bar">
@@ -94,7 +101,8 @@ svg.sp{display:block}
   </div>
   <div class="legend"><span><i style="background:var(--spark)"></i>收盤價</span>
     <span><i style="background:var(--ma)"></i>60日均線（季線）</span></div>
-  <div class="tbl"><table>
+  <div class="topscroll" id="topscroll" hidden><div></div></div>
+  <div class="tbl" id="tbl"><table>
     <thead><tr id="hd"></tr></thead><tbody id="bd"></tbody>
   </table><div class="empty" id="empty" hidden>沒有符合條件的股票</div></div>
   <p class="foot">表格可以直接上下、左右滑動；消息欄點一下展開全文。投信/外資 = 當日買賣超張數。月營收年增 = 最新公布月份與去年同月比較。本益比 10 倍以下的爆量突破，歷史表現較弱。「準備突破觀察」只是觀察名單，本身不是買進訊號。量比 = 當日成交量 ÷ 比較基準。乖離 = 收盤相對 60 日均線。價格未還原除權息。本報表僅供參考，不構成投資建議。</p>
@@ -154,7 +162,7 @@ function render(){
    <td class="l">${spark(r.spark,r.spark_ma)}</td>
    ${cols.slice(3,13).map(c=>{const v=r[c.k];return `<td class="${v!=null&&c.c?c.c(v):''}">${v==null?'—':c.f(v)}</td>`}).join('')}
    <td class="l news">${newsCell(r)}</td>
-   <td class="l">${r.flag?`<span class="flag">${r.flag}</span>`:''}${r.tags.map(t=>`<span class="tag">${t}</span>`).join('')}</td></tr>`).join('');
+   <td class="l tagcol">${r.flag?`<span class="flag">${r.flag}</span>`:''}${r.tags.map(t=>`<span class="tag">${t}</span>`).join('')}</td></tr>`).join('');
 }
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function newsCell(r){
@@ -173,6 +181,12 @@ function senti(){
    ${k(s.surge_pct.toFixed(1)+'%','爆量家數')}${k((s.mkt20>0?'+':'')+s.mkt20.toFixed(1)+'%','大盤近20日')}</div>`;
 }
 $('q').oninput=render;senti();tiles();render();
+// 上方捲軸與表格同步
+(function(){const top=$('topscroll'),tb=$('tbl');
+ function size(){top.firstElementChild.style.width=tb.scrollWidth+'px';top.hidden=tb.scrollWidth<=tb.clientWidth+2;}
+ top.addEventListener('scroll',()=>{if(Math.abs(tb.scrollLeft-top.scrollLeft)>1)tb.scrollLeft=top.scrollLeft;});
+ tb.addEventListener('scroll',()=>{if(Math.abs(tb.scrollLeft-top.scrollLeft)>1)top.scrollLeft=tb.scrollLeft;});
+ window.addEventListener('resize',size);new MutationObserver(size).observe($('bd'),{childList:true});setTimeout(size,0);})();
 $('bd').addEventListener('click',e=>{const td=e.target.closest('td.news');if(td&&!e.target.closest('a'))td.classList.toggle('open');});
 </script>
 </body>
@@ -226,10 +240,21 @@ def build_rows(stocks: pd.DataFrame, met: pd.DataFrame, hits: dict[str, list[str
     return rows
 
 
+def _qday(date: str) -> str:
+    try:
+        from . import fetch
+        from .qday import quarter_info
+        h = fetch.load_history()
+        return quarter_info(date, h.date.unique())["text"]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def render_html(title, date, scanned, rows, strat_info, spark_days, archive_link="", senti=None):
     js = lambda o: json.dumps(o, ensure_ascii=False).replace("</", "<\\/")
     return (
         TEMPLATE.replace("__TITLE__", title)
+        .replace("__QDAY__", _qday(date))
         .replace("__DATE__", date)
         .replace("__SCANNED__", f"{scanned:,}")
         .replace("__ARCHIVE__", archive_link)

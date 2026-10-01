@@ -43,28 +43,55 @@ def fetch_quotes(stocks: pd.DataFrame, batch: int = 50) -> tuple[pd.DataFrame, s
     except requests.RequestException as e:
         log.warning("MIS 首頁連線失敗：%s", e)
     keys = [f"{'tse' if m == 'TWSE' else 'otc'}_{c}.tw" for c, m in zip(stocks.code, stocks.market)]
-    rows, day = [], None
-    for i in range(0, len(keys), batch):
-        chunk = "|".join(keys[i : i + batch])
-        for attempt in range(3):
-            try:
-                r = s.get(MIS, params={"ex_ch": chunk, "json": "1", "delay": "0", "_": int(time.time() * 1000)}, timeout=20)
-                j = r.json()
-                break
-            except Exception as e:  # noqa: BLE001
-                log.warning("MIS 失敗（%d）：%s", attempt + 1, e)
-                time.sleep(3)
-        else:
-            continue
-        for q in j.get("msgArray", []):
-            price = _f(q.get("z")) or _f(q.get("pz")) or _f(q.get("b"))
-            rows.append({"code": q.get("c"), "name": q.get("n"), "price": price, "open": _f(q.get("o")),
-                         "high": _f(q.get("h")), "yclose": _f(q.get("y")), "vol_lots": _f(q.get("v")) or 0,
-                         "time": q.get("t"), "date": q.get("d")})
-            day = day or q.get("d")
-        time.sleep(0.8)
-    log.info("取得 %d 檔即時報價", len(rows))
-    return pd.DataFrame(rows), day
+    got, day = {}, None
+
+    def pull(key_list):
+        nonlocal day
+        for i in range(0, len(key_list), batch):
+            chunk = "|".join(key_list[i : i + batch])
+            for attempt in range(3):
+                try:
+                    r = s.get(MIS, params={"ex_ch": chunk, "json": "1", "delay": "0", "_": int(time.time() * 1000)},
+                              timeout=20)
+                    j = r.json()
+                    break
+                except Exception as e:  # noqa: BLE001
+                    log.warning("MIS 失敗（%d）：%s", attempt + 1, e)
+                    time.sleep(3)
+            else:
+                continue
+            for q in j.get("msgArray", []):
+                row = {"code": q.get("c"), "name": q.get("n"), "price": _price(q), "open": _f(q.get("o")),
+                       "high": _f(q.get("h")), "yclose": _f(q.get("y")), "vol_lots": _f(q.get("v")) or 0,
+                       "time": q.get("t"), "date": q.get("d")}
+                old = got.get(row["code"])
+                if old is None or row["price"] is not None:
+                    got[row["code"]] = row
+                day = day or q.get("d")
+            time.sleep(0.8)
+
+    pull(keys)
+    # MIS 偶爾在兩筆成交之間回傳 "-"（沒有最新成交價），對這些股票再抓一次
+    key_of = dict(zip(stocks.code.astype(str), keys))
+    miss = [key_of[c] for c, r in got.items() if r["price"] is None and c in key_of]
+    if miss:
+        time.sleep(2)
+        pull(miss)
+        log.info("報價缺漏 %d 檔，重抓後仍缺 %d 檔", len(miss), sum(r["price"] is None for r in got.values()))
+    log.info("取得 %d 檔即時報價", len(got))
+    df = pd.DataFrame(list(got.values()))
+    return df, day
+
+
+def _price(q: dict) -> float | None:
+    """最新成交價；沒有就用最近一筆成交（pz），再沒有就用最佳買賣價的中間價。"""
+    p = _f(q.get("z")) or _f(q.get("pz"))
+    if p:
+        return p
+    b, a = _f(q.get("b")), _f(q.get("a"))
+    if b and a:
+        return round((b + a) / 2, 2)
+    return b or a
 
 
 def main(argv=None) -> int:
