@@ -124,7 +124,17 @@ def events(hist: pd.DataFrame) -> pd.DataFrame:
     guess = pd.DataFrame({"date": jump.date, "code": jump.code, "factor": (jump.prev / jump.open).round(8), "src": "推估"})
     out = pd.concat([known, guess], ignore_index=True)
     out = out[out.factor.notna() & (out.factor > 0) & ((out.factor - 1).abs() > 1e-6)]
-    return out.drop_duplicates(["date", "code"]).sort_values(["code", "date"]).reset_index(drop=True)
+    out = out.drop_duplicates(["date", "code"])
+    # 合理性檢查：調整後那天的漲跌要在漲跌停範圍內，不然代表事件沒真的反映在股價上（例：天瀚 2026/8/18
+    # 除權表說參考價 30.04，實際照樣從 44.4 漲停到 48.8），硬調反而做出假的大跳，這種跳過
+    day = h.assign(prev=prev)[["date", "code", "close", "prev"]]
+    chk = out.merge(day, on=["date", "code"], how="left")
+    move = chk.close * chk.factor / chk.prev - 1
+    bad = chk.prev.notna() & chk.close.notna() & (move.abs() > GAP)
+    if bad.any():
+        log.info("除權／減資事件和股價對不上、略過：%s", ", ".join(f"{d} {c}" for d, c in zip(chk.date[bad], chk.code[bad])))
+    out = chk[~bad.values][["date", "code", "factor", "src"]]
+    return out.sort_values(["code", "date"]).reset_index(drop=True)
 
 
 def adjust(hist: pd.DataFrame, upto: str | None = None) -> pd.DataFrame:
