@@ -1,0 +1,41 @@
+name: 對照組 ETF 補歷史
+
+# 0050 等對照組 ETF（data/extras/bench.csv）。每日排程本來就會順便更新，這個是要馬上補、不想等每日排程時手動跑。
+# 只寫 bench.csv，跟其他排程不搶檔案，所以自己一個佇列。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bench
+  cancel-in-progress: false
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: 補抓並儲存
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          ok=0; for i in 1 2 3 4 5; do
+            git fetch -q origin main && git reset -q --hard origin/main
+            python -c "import logging,yaml; logging.basicConfig(level=logging.INFO); from screener import fetch; fetch.update_bench(None, int(yaml.safe_load(open('config.yaml'))['settings']['history_days']))"
+            git add data/extras/bench.csv
+            if git diff --cached --quiet; then echo "沒有變更"; ok=1; break; fi
+            git commit -q -m "對照組 ETF $(TZ=Asia/Taipei date '+%F %H:%M')"
+            if git push -q origin HEAD:main; then ok=1; break; fi
+            sleep 10
+          done; [ "$ok" = 1 ]
+          tail -3 data/extras/bench.csv; wc -l data/extras/bench.csv

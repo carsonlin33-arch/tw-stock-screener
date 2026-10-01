@@ -15,8 +15,10 @@ permissions:
   pages: write
   id-token: write
 
+# 自己一個佇列：不用等每日排程、補抓（補抓一跑兩小時，排在後面網頁就要等兩小時）。
+# 推送前一律重抓最新 main 再重畫，就算每日排程剛推了新報表也不會蓋掉。
 concurrency:
-  group: screener
+  group: pages
   cancel-in-progress: false
 
 jobs:
@@ -32,21 +34,20 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - name: 用現有資料重畫網頁
-        run: python -m screener.rebuild   # 和每日排程同一個佇列，排完才 checkout，拿到的是最新資料
-      - name: 儲存
+      - name: 用現有資料重畫網頁並儲存
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add site
-          if git diff --cached --quiet; then echo "沒有變更"; else
-            git commit -m "網頁版面更新 $(TZ=Asia/Taipei date '+%F %H:%M')"
-            # 別的排程剛好也推了資料時：重試，衝突的檔案以這次新產生的為準
-            ok=0; for i in 1 2 3; do
-              if git pull --rebase -X theirs && git push; then ok=1; break; fi
-              git rebase --abort 2>/dev/null || true; sleep 5
-            done; [ "$ok" = 1 ]
-          fi
+          # 每次都從最新的 main 重畫：推送失敗（別的排程剛推了資料）就丟掉這次的結果，重抓再畫一次
+          ok=0; for i in 1 2 3 4 5; do
+            git fetch -q origin main && git reset -q --hard origin/main
+            python -m screener.rebuild
+            git add site
+            if git diff --cached --quiet; then echo "沒有變更"; ok=1; break; fi
+            git commit -q -m "網頁版面更新 $(TZ=Asia/Taipei date '+%F %H:%M')"
+            if git push -q origin HEAD:main; then ok=1; break; fi
+            sleep 10
+          done; [ "$ok" = 1 ]
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
