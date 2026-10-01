@@ -235,7 +235,7 @@ def news(s, code: str, name: str, days: int = 3, limit: int = 3) -> list[dict]:
 
 
 # ------------------------------------------------------------ 收盤後：全部抓一次並存檔
-def refresh(d: dt.date) -> dict[str, int]:
+def refresh(d: dt.date, backfill: int = 25) -> dict[str, int]:
     DIR.mkdir(parents=True, exist_ok=True)
     s = _session()
     got = {}
@@ -255,6 +255,13 @@ def refresh(d: dt.date) -> dict[str, int]:
                 except Exception as e:  # noqa: BLE001
                     log.warning("法人歷史更新失敗：%s", e)
         time.sleep(2)
+    from . import chips
+    for name, fn in [("margin", lambda: chips.update_margin_history(s, d, backfill)),
+                     ("rev_hist", lambda: {"rev_months": chips.update_revenue_history(s, d)})]:
+        try:
+            got.update(fn())
+        except Exception as e:  # noqa: BLE001
+            log.warning("%s 歷史更新失敗：%s", name, e)
     (DIR / "updated.json").write_text(json.dumps({"date": d.isoformat(), **got}, ensure_ascii=False))
     log.info("消息面資料：%s", got)
     return got
@@ -333,12 +340,14 @@ def load() -> pd.DataFrame:
         if f.exists():
             df = pd.read_csv(f, dtype={"code": str}).drop_duplicates("code").set_index("code")
             frames.append(df)
-    try:
-        st = inst_streaks()
-        if len(st):
-            frames.append(st)
-    except Exception as e:  # noqa: BLE001
-        log.warning("法人連續天數計算失敗：%s", e)
+    from . import chips
+    for name, fn in [("法人連續天數", inst_streaks), ("融資融券", chips.margin_metrics), ("月營收歷史", chips.revenue_metrics)]:
+        try:
+            st = fn()
+            if len(st):
+                frames.append(st)
+        except Exception as e:  # noqa: BLE001
+            log.warning("%s計算失敗：%s", name, e)
     return pd.concat(frames, axis=1) if frames else pd.DataFrame()
 
 
@@ -349,12 +358,11 @@ def probe(s, d: dt.date) -> None:
     if d.month == 1:
         roc_y -= 1
     urls = [
-        ("TPEX 當沖 stat Daily", "https://www.tpex.org.tw/www/zh-tw/intraday/stat", {"type": "Daily", "date": slash, "response": "json"}),
-        ("TPEX 當沖 stat daily", "https://www.tpex.org.tw/www/zh-tw/intraday/stat", {"type": "daily", "date": slash, "id": "", "response": "json"}),
-        ("TPEX 當沖 dayTrading", "https://www.tpex.org.tw/www/zh-tw/intraday/dayTrading", {"date": slash, "response": "json"}),
-        ("TPEX 當沖 openapi", "https://www.tpex.org.tw/openapi/v1/tpex_intraday_trading_statistics", None),
-        ("TPEX 當沖 openapi2", "https://www.tpex.org.tw/openapi/v1/tpex_daytrading", None),
-        ("MOPS 上市營收 113/9", "https://mopsov.twse.com.tw/nas/t21/sii/t21sc03_113_9_0.html", None),
+        ("TWSE 融資融券", "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN", {"date": ymd, "selectType": "STOCK", "response": "json"}),
+        ("TPEX 融資融券", "https://www.tpex.org.tw/www/zh-tw/margin/balance", {"date": slash, "response": "json"}),
+        ("TWSE 當沖", "https://www.twse.com.tw/rwd/zh/dayTrading/TWTB4U", {"date": ymd, "selectType": "All", "response": "json"}),
+        ("TPEX 當沖", "https://www.tpex.org.tw/www/zh-tw/intraday/stat", {"type": "Daily", "date": slash, "response": "json"}),
+        ("MOPS 上市營收", f"https://mopsov.twse.com.tw/nas/t21/sii/t21sc03_{roc_y}_{m}_0.html", None),
     ]
     for name, url, params in urls:
         print(f"\n===== {name}  {url}  {params}")
@@ -406,11 +414,18 @@ def probe(s, d: dt.date) -> None:
         time.sleep(3)
 
 
+def _chips():
+    from . import chips
+    return chips
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--test", action="store_true")
     ap.add_argument("--probe", action="store_true", help="只印出候選資料來源的欄位格式")
     ap.add_argument("--date")
+    ap.add_argument("--backfill-chips", type=int, metavar="N",
+                    help="融資融券／當沖往前補 N 個交易日、月營收補到 24 個月（存檔）")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
@@ -418,9 +433,15 @@ def main():
     if a.probe:
         probe(s, d)
         return
+    if a.backfill_chips:
+        from . import chips
+        print(chips.update_margin_history(s, d, a.backfill_chips), "月營收", chips.update_revenue_history(s, d), "個月")
+        return
     for name, fn in [("本益比", lambda: pe(s, d)), ("三大法人", lambda: institutional(s, d)),
                      ("月營收", lambda: revenue(s)), ("重大訊息", lambda: announcements(s)),
-                     ("注意處置", lambda: warnings_list(s))]:
+                     ("注意處置", lambda: warnings_list(s)), ("融資融券", lambda: _chips().margin(s, d)),
+                     ("當沖", lambda: _chips().daytrade(s, d)),
+                     ("月營收（上月）", lambda: _chips().revenue_month(s, *_chips()._months_back(d, 1)[0]))]:
         try:
             df = fn()
             print(f"【{name}】{len(df)} 筆")
