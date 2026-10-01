@@ -19,6 +19,9 @@ HISTORY_FILE = ROOT / "data" / "history.csv.gz"
 STOCK_LIST_FILE = ROOT / "data" / "stock_list.csv"
 
 COLS = ["date", "code", "open", "high", "low", "close", "volume"]
+# 大盤對照組（ETF）：另存 data/extras/bench.csv，不放進 history，免得 ETF 混進選股母體
+BENCH_F = ROOT / "data" / "extras" / "bench.csv"
+BENCH_CODES = {"0050": "TWSE"}
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
@@ -255,6 +258,28 @@ def fetch_yahoo(stocks: pd.DataFrame, start: dt.date) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
+def update_bench(new: pd.DataFrame | None, keep_days: int) -> None:
+    """從當天抓到的全市場行情挑出對照組 ETF；檔案裡天數不夠時先用 Yahoo 補一年。失敗不影響主流程。"""
+    try:
+        old = pd.read_csv(BENCH_F, dtype={"code": str}) if BENCH_F.exists() else pd.DataFrame(columns=COLS)
+        add = [new[new.code.isin(list(BENCH_CODES))][COLS]] if new is not None and len(new) else []
+        n = old.groupby("code").size().reindex(list(BENCH_CODES)).fillna(0)
+        if (n < keep_days * 0.9).any():
+            start = dt.date.today() - dt.timedelta(days=int(keep_days * 1.5) + 10)
+            try:
+                y = fetch_yahoo(pd.DataFrame({"code": list(BENCH_CODES), "market": list(BENCH_CODES.values())}), start)
+                add.insert(0, y[COLS])
+                log.info("對照組 ETF 用 Yahoo 補 %d 筆", len(y))
+            except Exception as e:  # noqa: BLE001
+                log.warning("對照組 ETF 用 Yahoo 補歷史失敗（明天再試）：%s", e)
+        df = pd.concat([old, *add], ignore_index=True).drop_duplicates(["date", "code"], keep="last")
+        keep = sorted(df.date.unique())[-keep_days:]
+        BENCH_F.parent.mkdir(parents=True, exist_ok=True)
+        df[df.date.isin(keep)].sort_values(["code", "date"]).to_csv(BENCH_F, index=False)
+    except Exception as e:  # noqa: BLE001
+        log.warning("對照組 ETF 更新失敗：%s", e)
+
+
 # ---------------------------------------------------------------- 對外介面
 def _build_stock_list() -> None:
     """第一次執行時，用 twstock 套件內建的代號表建立股票清單。"""
@@ -418,6 +443,7 @@ def update_history(
         new = fetch_yahoo(stocks, start)
         new = new[new.date <= target.isoformat()]
 
+    update_bench(new, keep_days)
     new = new[new.code.str.fullmatch(r"[1-9]\d{3}")]
     _add_new_listings(new, stocks, markets)
     stocks = load_stock_list(markets)
