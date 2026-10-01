@@ -14,6 +14,11 @@ on:
         description: "已處理過也強制重跑"
         type: boolean
         default: false
+      test:
+        # cron-job.org 觸發時 body 會帶 test（和盤中監控共用設定），沒定義的話 GitHub 會回 422 拒絕
+        description: "測試：不發通知"
+        required: false
+        default: "false"
 
 permissions:
   contents: write
@@ -50,6 +55,7 @@ jobs:
           ARGS=""
           if [ -n "${{ inputs.date }}" ]; then ARGS="$ARGS --date ${{ inputs.date }}"; fi
           if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
+          if [ "${{ inputs.test }}" = "true" ]; then ARGS="$ARGS --no-email"; fi
           python -m screener.main $ARGS
 
       - name: 儲存歷史資料與報表
