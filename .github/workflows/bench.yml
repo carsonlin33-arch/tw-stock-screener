@@ -29,14 +29,15 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          ok=0; for i in 1 2 3 4 5; do
-            git fetch -q origin main && git reset -q --hard origin/main
-            python -c "import logging,yaml; logging.basicConfig(level=logging.INFO); from screener import fetch; fetch.update_bench(None, int(yaml.safe_load(open('config.yaml'))['settings']['history_days']))"
-            python -c "import datetime as dt,logging; logging.basicConfig(level=logging.INFO); from screener import exdiv; exdiv.update(dt.date.today())"
-            for f in data/extras/bench.csv data/extras/exdiv.csv data/extras/exdiv_upcoming.csv; do [ -e "$f" ] && git add "$f"; done
-            if git diff --cached --quiet; then echo "沒有變更"; ok=1; break; fi
+          python -c "import logging,yaml; logging.basicConfig(level=logging.INFO); from screener import fetch; fetch.update_bench(None, int(yaml.safe_load(open('config.yaml'))['settings']['history_days']))"
+          python -c "import datetime as dt,logging; logging.basicConfig(level=logging.INFO); from screener import exdiv; exdiv.update(dt.date.today())"
+          for f in data/extras/bench.csv data/extras/exdiv.csv data/extras/exdiv_upcoming.csv; do [ -e "$f" ] && git add "$f"; done
+          if git diff --cached --quiet; then echo "沒有變更"; else
             git commit -q -m "對照組 ETF／除權息 $(TZ=Asia/Taipei date '+%F %H:%M')"
-            if git push -q origin HEAD:main; then ok=1; break; fi
-            sleep 10
-          done; [ "$ok" = 1 ]
+            # 補明細要十幾分鐘，期間 main 常常有別的提交：重新接上去就好，不用整個重算（這幾個檔以這次的為準）
+            ok=0; for i in 1 2 3 4 5; do
+              if git pull -q --rebase -X theirs origin main && git push -q origin HEAD:main; then ok=1; break; fi
+              git rebase --abort 2>/dev/null || true; sleep 10
+            done; [ "$ok" = 1 ]
+          fi
           tail -3 data/extras/bench.csv; wc -l data/extras/bench.csv
