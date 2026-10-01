@@ -475,6 +475,38 @@ def render_html(title, date, scanned, rows, strat_info, spark_days, archive_link
     )
 
 
+# ------------------------------------------------------------ 只改版面時：用現有資料重新產生網頁
+def save_inputs(path: Path, **kw) -> None:
+    """把產生報表用的資料存起來（data/report_data.json），之後改版面可以直接重畫，不用重抓資料。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_clean(kw), ensure_ascii=False, separators=(",", ":")), "utf-8")
+
+
+def inputs_from_html(html: str) -> dict:
+    """舊報表沒有存 report_data.json 時，從 index.html 裡嵌入的資料還原。"""
+    import re
+
+    def const(name, default):
+        m = re.search(rf"^const {name}=(.*);$", html, re.M)
+        return json.loads(m.group(1)) if m else default
+
+    sub = re.search(r"資料日期 (\S+?)（.*?）・ 共掃描 ([\d,]+) 檔", html)
+    return {"title": re.search(r"<h1>(.*?)</h1>", html).group(1), "date": sub.group(1),
+            "scanned": int(sub.group(2).replace(",", "")),
+            "spark_days": int(re.search(r"近(\d+)日走勢", html).group(1)),
+            "rows": const("DATA", []), "strat_info": const("STRATS", []), "senti": const("SENTI", {}),
+            "groups": const("GROUPS", []), "breadth": const("BREADTH", []), "large": const("LARGE", []),
+            "astats": const("ASTATS", {})}
+
+
+def rebuild(site_dir: Path, data_path: Path) -> str:
+    """用 report_data.json（沒有就從 index.html 還原）以目前的版面重新產生網頁，回傳資料日期。"""
+    kw = json.loads(data_path.read_text("utf-8")) if data_path.exists() else \
+        inputs_from_html((site_dir / "index.html").read_text("utf-8"))
+    write_site(site_dir, kw["date"], lambda link: render_html(archive_link=link, **kw))
+    return kw["date"]
+
+
 def write_site(out_dir: Path, date: str, html_for) -> None:
     """寫出 site/：YYYY-MM-DD.html（當日）、index.html（最新）、archive.html（歷史清單）。"""
     out_dir.mkdir(parents=True, exist_ok=True)

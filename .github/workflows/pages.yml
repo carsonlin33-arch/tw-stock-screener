@@ -1,0 +1,57 @@
+name: 更新網頁版面
+
+# 只改網頁版面（report.py、live_page.html）時，用現有資料重新產生 site/ 並發佈，不用等每日排程。
+on:
+  push:
+    branches: [main]
+    paths:
+      - screener/report.py
+      - screener/live_page.html
+      - screener/rebuild.py
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: screener
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: 用現有資料重畫網頁
+        run: python -m screener.rebuild   # 和每日排程同一個佇列，排完才 checkout，拿到的是最新資料
+      - name: 儲存
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site
+          if git diff --cached --quiet; then echo "沒有變更"; else
+            git commit -m "網頁版面更新 $(TZ=Asia/Taipei date '+%F %H:%M')"
+            git pull --rebase && git push
+          fi
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: rebuild
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    environment:
+      name: github-pages
+      url: ${{ steps.d.outputs.page_url }}
+    steps:
+      - id: d
+        uses: actions/deploy-pages@v4
