@@ -63,10 +63,10 @@ def industry_strength(p, stocks: pd.DataFrame, min_n: int = 5) -> list[dict]:
              "score": round(float(r.score)), "rank": int(r["rank"])} for k, r in out.iterrows()]
 
 
-def write_ohlc(path: Path, p, codes: list[str], days: int = 120) -> None:
-    """報表上股票的近 days 日 K 線（開高低收量），網頁點名稱時才載入。"""
+def write_ohlc(path: Path, p, codes: list[str], days: int = 120, sig: dict | None = None) -> None:
+    """報表上股票的近 days 日 K 線（開高低收量），網頁點名稱時才載入。sig = K 線上的訊號點（tech.signals）。"""
     idx = p.close.index[-days:]
-    out = {"dates": list(map(str, idx)), "k": {}}
+    out = {"dates": list(map(str, idx)), "k": {}, "sig": sig or {}}
     tr = p.traded.loc[idx]
     for code in codes:
         if code not in p.close.columns:

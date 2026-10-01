@@ -5,7 +5,8 @@
 
 settings:
   markets: [TWSE, TPEX]      # TWSE = 上市，TPEX = 上櫃
-  history_days: 150          # 保留多少個交易日的歷史（算季線至少要 61 天）
+  history_days: 260          # 保留多少個交易日的歷史（季線要 61 天；趨勢樣板的 MA200、52 週高低點要 260 天）
+                             # 調大時會自動往前補抓（每次最多約 150 個工作日）
   source: auto               # auto：官方優先、失敗改用 Yahoo；official；yahoo
   exclude_codes: []          # 不想看的股票代號，例如 ["2330", "2317"]
 
@@ -110,6 +111,7 @@ extras:
 report:
   title: 台股每日篩選
   spark_days: 60             # 報表小走勢圖顯示幾天
+  kline_days: 120            # 點名稱看 K 線的天數
 
 email:
   enabled: true

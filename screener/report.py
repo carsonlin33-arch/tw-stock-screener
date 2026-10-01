@@ -114,6 +114,25 @@ svg.sp{display:block}
 #kc table{min-width:0;width:auto;border-collapse:separate;border-spacing:0}
 #kc td,#kc th,#kc tr{padding:0;border:0;position:static;left:auto;top:auto;min-width:0;width:auto;background:none;box-shadow:none;white-space:normal;text-align:left;z-index:auto}
 .mleg{font-size:12px;color:var(--muted);margin-top:6px}
+/* 大盤寬度走勢 */
+.breadth{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:0 0 16px}
+.breadth .hd{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline;margin-bottom:6px}
+.breadth .hd b{font-size:16px}.breadth .hd span{color:var(--muted);font-size:12px}
+.bgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.bchart .t{font-size:13px;color:var(--ink2);margin-bottom:2px}.bchart .t b{color:var(--ink)}
+.bchart svg{display:block;width:100%;height:120px}
+.warnline{stroke:var(--up);stroke-dasharray:4 3;stroke-width:1}
+.midline{stroke:var(--line);stroke-width:1}
+/* 摺疊區塊：大型股觀察表、預警準確度 */
+details.box{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:0 0 16px}
+details.box summary{cursor:pointer;font-weight:600}
+details.box summary span{color:var(--muted);font-size:12px;font-weight:400;margin-left:8px}
+details.box .gt{overflow-x:auto;margin-top:8px}
+details.box table{min-width:720px;width:auto}
+details.box td,details.box th{padding:6px 12px}
+details.box th{position:static;cursor:default}
+details.box td:first-child,details.box th:first-child,details.box td:nth-child(2),details.box th:nth-child(2){position:static;box-shadow:none;width:auto;min-width:0}
+details.box .note{color:var(--muted);font-size:12px;margin:6px 0 0}
 </style>
 </head>
 <body>
@@ -122,7 +141,10 @@ svg.sp{display:block}
   <p class="sub">資料日期 __DATE__（__QDAY__）・ 共掃描 __SCANNED__ 檔 ・ __ARCHIVE__</p>
   <div class="senti" id="senti" hidden></div>
   <div class="tiles" id="tiles"></div>
+  <div class="breadth" id="breadth" hidden></div>
   <div class="groups" id="groups" hidden></div>
+  <details class="box" id="large" hidden></details>
+  <details class="box" id="astats" hidden></details>
   <div class="bar">
     <input id="q" placeholder="搜尋代號、名稱或產業…" autocomplete="off">
     <span class="cnt" id="cnt"></span>
@@ -133,11 +155,11 @@ svg.sp{display:block}
   <div class="tbl" id="tbl"><table>
     <thead><tr id="hd"></tr></thead><tbody id="bd"></tbody>
   </table><div class="empty" id="empty" hidden>沒有符合條件的股票</div></div>
-  <p class="foot">表格可以直接上下、左右滑動；消息欄點一下展開全文。投信/外資 = 當日買賣超張數；連續 = 連續買超或賣超的天數（從 10/1 起累積法人歷史，第一次會往前補抓約 20 天）。RS = 近 3、6 個月漲幅和全市場比較的分數（1~99）。點股票名稱可看 K 線。月營收年增 = 最新公布月份與去年同月比較。本益比 10 倍以下的爆量突破，歷史表現較弱。「準備突破觀察」只是觀察名單，本身不是買進訊號。量比 = 當日成交量 ÷ 比較基準。乖離 = 收盤相對 60 日均線。價格未還原除權息。本報表僅供參考，不構成投資建議。</p>
+  <p class="foot">表格可以直接上下、左右滑動；消息欄點一下展開全文。投信/外資 = 當日買賣超張數；連續 = 連續買超或賣超的天數（從 10/1 起累積法人歷史，第一次會往前補抓約 20 天）。RS = 近 3、6 個月漲幅和全市場比較的分數（1~99）。趨勢樣板 = 收盤 > MA50 > MA150 > MA200、MA200 比 20 日前高、收盤 ≥ 52 週低點 × 1.3 且 ≥ 52 週高點 × 0.75。營收連增 = 月營收年增率 > 0 連續幾個月（負數 = 連續衰退）。融資 5 日% = 融資餘額 5 個交易日的變化率。券資比僅供參考。點股票名稱可看 K 線。月營收年增 = 最新公布月份與去年同月比較。本益比 10 倍以下的爆量突破，歷史表現較弱。「準備突破觀察」只是觀察名單，本身不是買進訊號。量比 = 當日成交量 ÷ 比較基準。乖離 = 收盤相對 60 日均線。價格未還原除權息。本報表僅供參考，不構成投資建議。</p>
   <div class="modal" id="modal" hidden><div class="mbox" role="dialog" aria-modal="true">
     <div class="mhd"><div><h3 id="mt"></h3><div class="minfo" id="mi"></div></div><button class="x" id="mx" aria-label="關閉">×</button></div>
     <div id="kc"></div>
-    <div class="mleg">近 120 個交易日 K 線（紅漲綠跌）・ 橘線 = 20 日均線（月線）・ 藍線 = 60 日均線（季線）・ 下方 = 成交量（張）・ 價格未還原除權息</div>
+    <div class="mleg">近 120 個交易日 K 線（紅漲綠跌）・ 橘線 = 20 日均線（月線）・ 藍線 = 60 日均線（季線）・ 下方 = 成交量（張）・ ▲ = 爆量突破 60 日新高、▼ = 之後第一次量縮到爆量日一半（漲停日不算）・ 價格未還原除權息</div>
   </div></div>
 </div>
 <script>
@@ -145,6 +167,9 @@ const DATA=__DATA__;
 const GROUPS=__GROUPS__;
 const STRATS=__STRATS__;
 const SENTI=__SENTI__;
+const BREADTH=__BREADTH__;
+const LARGE=__LARGE__;
+const ASTATS=__ASTATS__;
 const stk=v=>v===0?'—':(v>0?'買 ':'賣 ')+Math.abs(v)+' 天';
 const cols=[
  {k:'code',t:'代號',l:1},{k:'name',t:'名稱 / 產業',l:1},{k:'spark',t:'近__SPARK__日走勢',l:1,ns:1},
@@ -155,12 +180,19 @@ const cols=[
  {k:'vol_x_avg5',t:'量比5日均',f:v=>v.toFixed(1)+'×'},
  {k:'bias60',t:'季線乖離%',f:v=>(v>0?'+':'')+v.toFixed(1),c:v=>v>0?'up':v<0?'down':''},
  {k:'rs',t:'RS',f:v=>v.toFixed(0),c:v=>v>=80?'up':v<=30?'down':''},
+ {k:'tpl',t:'趨勢樣板',f:v=>v?'✓':'✗',c:v=>v?'up':''},
  {k:'pe',t:'本益比',f:v=>v<=0?'虧損':v.toFixed(1)},
  {k:'trust',t:'投信(張)',f:v=>(v>0?'+':'')+Math.round(v).toLocaleString(),c:v=>v>0?'up':v<0?'down':''},
  {k:'foreign',t:'外資(張)',f:v=>(v>0?'+':'')+Math.round(v).toLocaleString(),c:v=>v>0?'up':v<0?'down':''},
  {k:'foreign_streak',t:'外資連續',f:stk,c:v=>v>0?'up':v<0?'down':''},
  {k:'trust_streak',t:'投信連續',f:stk,c:v=>v>0?'up':v<0?'down':''},
  {k:'rev_yoy',t:'月營收年增%',f:v=>(v>0?'+':'')+v.toFixed(0),c:v=>v>0?'up':v<0?'down':''},
+ {k:'rev_streak',t:'營收連增',f:v=>v>0?v+' 個月':v<0?'減 '+(-v)+' 個月':'—',c:v=>v>0?'up':v<0?'down':''},
+ {k:'rev_yoy_3m',t:'近3月年增%',f:v=>(v>0?'+':'')+v.toFixed(0),c:v=>v>0?'up':v<0?'down':''},
+ {k:'margin_chg',t:'融資增減(張)',f:v=>(v>0?'+':'')+Math.round(v).toLocaleString(),c:v=>v>0?'up':v<0?'down':''},
+ {k:'margin_5d_pct',t:'融資5日%',f:v=>(v>0?'+':'')+v.toFixed(1),c:v=>v>0?'up':v<0?'down':''},
+ {k:'short_ratio',t:'券資比%',f:v=>v.toFixed(1)},
+ {k:'dt_ratio',t:'當沖%',f:v=>v.toFixed(0)},
  {k:'news',t:'消息 / 重大訊息',l:1,ns:1},
  {k:'tags',t:'符合策略',l:1,ns:1},
 ];
@@ -198,9 +230,9 @@ function render(){
    <td class="l code"><a href="${r.url}" target="_blank" rel="noopener">${r.code}</a></td>
    <td class="l"><div class="name"><span class="nm" data-code="${r.code}" title="看 K 線">${r.name}</span></div><div class="meta">${r.market==='TWSE'?'上市':'上櫃'}${r.industry?' ・ '+r.industry:''}</div></td>
    <td class="l">${spark(r.spark,r.spark_ma)}</td>
-   ${cols.slice(3,16).map(c=>{const v=r[c.k];return `<td class="${v!=null&&c.c?c.c(v):''}">${v==null?'—':c.f(v)}</td>`}).join('')}
+   ${cols.filter(c=>!c.l).map(c=>{const v=r[c.k];return `<td class="${v!=null&&c.c?c.c(v):''}">${v==null?'—':c.f(v)}</td>`}).join('')}
    <td class="l news">${newsCell(r)}</td>
-   <td class="l tagcol">${r.flag?`<span class="flag">${r.flag}</span>`:''}${r.tags.map(t=>`<span class="tag">${t}</span>`).join('')}</td></tr>`).join('');
+   <td class="l tagcol">${r.flag?`<span class="flag">${r.flag}</span>`:''}${r.rev_high12?'<span class="tag">營收創 12 個月新高</span>':''}${r.tags.map(t=>`<span class="tag">${t}</span>`).join('')}</td></tr>`).join('');
 }
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function newsCell(r){
@@ -217,6 +249,40 @@ function senti(){
    <div class="kpis">${k(s.up_pct.toFixed(0)+'%','上漲家數')}${k(s.above_ma60.toFixed(0)+'%','站上季線')}
    ${k(s.new_high+' / '+s.new_low,'創60日新高 / 新低')}${k(s.limit_up+' / '+s.limit_down,'漲停 / 跌停')}
    ${k(s.surge_pct.toFixed(1)+'%','爆量家數')}${k((s.mkt20>0?'+':'')+s.mkt20.toFixed(1)+'%','大盤近20日')}</div>`;
+}
+function lineSvg(pts,lo,hi,lines,color){
+  const W=600,H=120,n=pts.length;if(!n)return'';
+  const x=i=>(i/(n-1||1))*(W-40)+36,y=v=>H-14-(v-lo)/(hi-lo)*(H-24);
+  let d='',pen=0;pts.forEach((v,i)=>{if(v==null){pen=0;return}d+=(pen?'L':'M')+x(i).toFixed(1)+' '+y(Math.max(lo,Math.min(hi,v))).toFixed(1);pen=1;});
+  const ls=lines.map(([v,cls,t])=>`<line x1="36" x2="${W-4}" y1="${y(v)}" y2="${y(v)}" class="${cls}"/><text x="2" y="${y(v)+4}" font-size="11" fill="var(--muted)">${t}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img">${ls}<path d="${d}" fill="none" stroke="${color}" stroke-width="1.8" vector-effect="non-scaling-stroke"/></svg>`;
+}
+function breadthBox(){
+  if(!BREADTH||BREADTH.length<2)return;const el=$('breadth');el.hidden=false;
+  const a=BREADTH.map(r=>r[1]),m=BREADTH.map(r=>r[2]),la=a.at(-1),lm=m.at(-1);
+  const mlo=Math.min(-6,...m.filter(v=>v!=null)),mhi=Math.max(6,...m.filter(v=>v!=null));
+  el.innerHTML=`<div class="hd"><b>大盤寬度</b><span>近 ${BREADTH.length} 個交易日（${BREADTH[0][0]} ~ ${BREADTH.at(-1)[0]}）・ 回測：寬度 < 30% 或近 20 日跌超過 3% 時，突破策略平均虧錢</span></div>
+  <div class="bgrid"><div class="bchart"><div class="t">站上月線比例 <b class="${la<30?'down':''}">${la==null?'—':la.toFixed(1)+'%'}</b>（20 日均量 ≥ 100 張的股票）</div>${lineSvg(a,0,100,[[30,'warnline','30%'],[50,'midline','50%']],'var(--accent)')}</div>
+  <div class="bchart"><div class="t">全市場等權近 20 日 <b class="${lm<-3?'down':lm>0?'up':''}">${lm==null?'—':(lm>0?'+':'')+lm.toFixed(2)+'%'}</b></div>${lineSvg(m,mlo,mhi,[[-3,'warnline','-3%'],[0,'midline','0%']],'var(--ink2)')}</div></div>`;
+}
+function largeBox(){
+  if(!LARGE||!LARGE.length)return;const el=$('large');el.hidden=false;
+  const p=v=>v==null?'—':`<span class="${v>0?'up':v<0?'down':''}">${v>0?'+':''}${(+v).toFixed(1)}%</span>`;
+  el.innerHTML=`<summary>大型股觀察表<span>近 20 日平均成交值前 ${LARGE.length} 大・ 核心持股檢查用</span></summary>
+  <div class="gt"><table><thead><tr><th class="l">#</th><th class="l">股票</th><th>收盤</th><th>漲跌</th><th>成交值(億)</th><th>本益比</th><th>月營收年增</th><th>近3月年增</th><th>外資20日(張)</th><th>離52週高</th><th>樣板</th><th>RS</th></tr></thead><tbody>
+  ${LARGE.map(r=>`<tr><td class="l">${r.rank}</td><td class="l">${r.code} ${esc(r.name)}<div class="meta">${esc(r.industry)}</div></td><td>${r.close.toFixed(2)}</td><td>${p(r.chg)}</td>
+   <td>${r.turnover.toFixed(1)}</td><td>${r.pe==null?'—':r.pe<=0?'虧損':(+r.pe).toFixed(1)}</td><td>${p(r.rev_yoy)}</td><td>${p(r.rev_yoy_3m)}</td>
+   <td class="${r.foreign_20d>0?'up':r.foreign_20d<0?'down':''}">${r.foreign_20d==null?'—':(r.foreign_20d>0?'+':'')+Math.round(r.foreign_20d).toLocaleString()}</td>
+   <td>${p(r.hi52_dist)}</td><td>${r.tpl==null?'—':r.tpl?'✓':'✗'}</td><td>${r.rs==null?'—':r.rs.toFixed(0)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function astatsBox(){
+  if(!ASTATS||!ASTATS.all)return;const el=$('astats');el.hidden=false;
+  const p=v=>v==null?'—':`<span class="${v>0?'up':v<0?'down':''}">${v>0?'+':''}${v.toFixed(2)}%</span>`;
+  const tb=(title,rows)=>`<table><thead><tr><th class="l">${title}</th><th>筆數</th><th>收盤仍符合</th><th>3 日報酬</th><th>5 日報酬</th></tr></thead><tbody>
+   ${rows.map(r=>`<tr><td class="l">${r.bucket||'全部'}</td><td>${r.n}</td><td>${r.close_hit.toFixed(0)}%</td><td>${p(r.ret3)} <span class="meta">(${r.ret3_n})</span></td><td>${p(r.ret5)} <span class="meta">(${r.ret5_n})</span></td></tr>`).join('')}</tbody></table>`;
+  el.innerHTML=`<summary>早期預警準確度<span>${ASTATS.from} ~ ${ASTATS.to}・ ${ASTATS.days} 個交易日・ 共 ${ASTATS.all.n} 筆</span></summary>
+  <div class="gt">${tb('全部',[ASTATS.all])}${tb('預警時段',ASTATS.by_time)}${tb('族群同步家數',ASTATS.by_peers)}</div>
+  <p class="note">收盤仍符合 = 預警當天收盤仍是「爆量突破 60 日新高」；報酬 = 預警價到第 3、5 個交易日收盤，括號是有結果的筆數。樣本少時參考就好。</p>`;
 }
 let gAll=false;
 function groupsBox(){
@@ -244,6 +310,12 @@ async function openK(code){
    `本益比 <b>${f(r.pe,v=>v<=0?'虧損':v.toFixed(1))}</b>`,`月營收年增 <b>${f(r.rev_yoy,v=>(v>0?'+':'')+v.toFixed(0)+'%')}</b>`,
    `外資 <b>${f(r.foreign,v=>(v>0?'+':'')+Math.round(v).toLocaleString()+' 張')}</b>${r.foreign_streak?`（${stk(r.foreign_streak)}）`:''}`,
    `投信 <b>${f(r.trust,v=>(v>0?'+':'')+Math.round(v).toLocaleString()+' 張')}</b>${r.trust_streak?`（${stk(r.trust_streak)}）`:''}`,`RS <b>${f(r.rs,v=>v.toFixed(0))}</b>`,
+   `趨勢樣板 <b>${r.tpl==null?'資料不足':r.tpl?'✓':'✗'}</b>`,`離 52 週高點 <b>${f(r.hi52_dist,v=>v.toFixed(1)+'%')}</b>`,
+   `融資 <b>${f(r.margin_chg,v=>(v>0?'+':'')+Math.round(v).toLocaleString()+' 張')}</b>${r.margin_streak?`（${r.margin_streak>0?'連增':'連減'} ${Math.abs(r.margin_streak)} 天）`:''}`,
+   `融資 5 日 <b>${f(r.margin_5d_pct,v=>(v>0?'+':'')+v.toFixed(1)+'%')}</b>`,`融資使用率 <b>${f(r.margin_util,v=>v.toFixed(1)+'%')}</b>`,
+   `券資比 <b>${f(r.short_ratio,v=>v.toFixed(1)+'%')}</b>`,`當沖 <b>${f(r.dt_ratio,v=>v.toFixed(0)+'%')}</b>`,
+   `營收 <b>${r.rev_streak?(r.rev_streak>0?'連增 '+r.rev_streak:'連減 '+(-r.rev_streak))+' 個月':'—'}</b>`,
+   `近 3 月年增 <b>${f(r.rev_yoy_3m,v=>(v>0?'+':'')+v.toFixed(0)+'%')}</b>${r.rev_accel!=null?`（${r.rev_accel>0?'加速':'減速'} ${Math.abs(r.rev_accel).toFixed(0)} 個百分點）`:''}`,
    `<a href="${r.url}" target="_blank" rel="noopener">Yahoo 股市 ↗</a>`].join('');
   const box=$('kc');box.innerHTML='<p style="color:var(--muted)">載入中…</p>';
   try{
@@ -262,6 +334,10 @@ async function openK(code){
   OHLC.dates.forEach((d,i)=>{const x=k[i];if(!x)return;bars.push({time:d,open:x[0],high:x[1],low:x[2],close:x[3]});
     vols.push({time:d,value:x[4],color:(x[3]>=x[0]?up:dn)+'88'});closes.push([d,x[3]]);});
   cs.setData(bars);
+  const have=new Set(bars.map(b=>b.time));
+  cs.setMarkers(((OHLC.sig||{})[code]||[]).filter(x=>have.has(x[0])).map(([d,t])=>t==='B'
+    ?{time:d,position:'belowBar',color:up,shape:'arrowUp',text:'突破'}
+    :{time:d,position:'aboveBar',color:dn,shape:'arrowDown',text:'量縮'}));
   const vs=chart.addHistogramSeries({priceScaleId:'',priceFormat:{type:'volume'},lastValueVisible:false,priceLineVisible:false});
   chart.priceScale('').applyOptions({scaleMargins:{top:.8,bottom:0}});cs.priceScale().applyOptions({scaleMargins:{top:.05,bottom:.25}});
   vs.setData(vols);
@@ -275,7 +351,7 @@ function closeK(){$('modal').hidden=true;document.body.style.overflow='';}
 $('mx').onclick=closeK;$('modal').addEventListener('click',e=>{if(e.target.id==='modal')closeK();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('modal').hidden)closeK();});
 $('bd').addEventListener('click',e=>{const n=e.target.closest('.nm');if(n)openK(n.dataset.code);});
-$('q').oninput=render;senti();tiles();groupsBox();render();
+$('q').oninput=render;senti();tiles();breadthBox();groupsBox();largeBox();astatsBox();render();
 // 上方捲軸與表格同步
 (function(){const top=$('topscroll'),tb=$('tbl');
  function size(){top.firstElementChild.style.width=tb.scrollWidth+'px';top.hidden=tb.scrollWidth<=tb.clientWidth+2;}
@@ -325,10 +401,12 @@ def build_rows(stocks: pd.DataFrame, met: pd.DataFrame, hits: dict[str, list[str
         )
         r = rows[-1]
         ex = extras.loc[code] if extras is not None and code in extras.index else None
-        for k in ["pe", "trust", "foreign", "rev_yoy", "foreign_streak", "trust_streak"]:
+        for k in ["pe", "trust", "foreign", "rev_yoy", "foreign_streak", "trust_streak", "rev_streak", "rev_yoy_3m",
+                  "rev_accel", "margin_chg", "margin_5d_pct", "margin_util", "margin_streak", "short_ratio", "dt_ratio"]:
             r[k] = _clean(float(ex[k])) if ex is not None and k in ex and pd.notna(ex[k]) else None
         if r["pe"] is None and ex is not None and "pe" in ex:
             r["pe"] = -1 if "pb" in ex and pd.notna(ex.get("pb")) else None  # 有資料但沒本益比 = 虧損
+        r["rev_high12"] = bool(ex["rev_high12"]) if ex is not None and "rev_high12" in ex and pd.notna(ex["rev_high12"]) else None
         r["flag"] = ex["flag"] if ex is not None and "flag" in ex and isinstance(ex["flag"], str) else ""
         r["ann"] = (ann or {}).get(code, [])
         r["news"] = (news or {}).get(code, [])
@@ -345,7 +423,8 @@ def _qday(date: str) -> str:
         return ""
 
 
-def render_html(title, date, scanned, rows, strat_info, spark_days, archive_link="", senti=None, groups=None):
+def render_html(title, date, scanned, rows, strat_info, spark_days, archive_link="", senti=None, groups=None,
+                breadth=None, large=None, astats=None):
     js = lambda o: json.dumps(o, ensure_ascii=False).replace("</", "<\\/")
     return (
         TEMPLATE.replace("__TITLE__", title)
@@ -358,6 +437,9 @@ def render_html(title, date, scanned, rows, strat_info, spark_days, archive_link
         .replace("__STRATS__", js(strat_info))
         .replace("__SENTI__", js(_clean(senti or {})))
         .replace("__GROUPS__", js(_clean(groups or [])))
+        .replace("__BREADTH__", js(_clean(breadth or [])))
+        .replace("__LARGE__", js(_clean(large or [])))
+        .replace("__ASTATS__", js(_clean(astats or {})))
     )
 
 

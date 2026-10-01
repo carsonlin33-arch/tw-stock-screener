@@ -1,0 +1,41 @@
+name: 補抓籌碼與營收歷史
+
+# 一次性：融資融券／當沖往前補 N 個交易日（預設 250 ≈ 一年，約 1 小時）、月營收補到 24 個月。
+# 每日排程本來就會每次補 25 天，這個只是讓歷史一次補齊。
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "融資融券／當沖往前補幾個交易日"
+        default: "250"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: screener
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: 補抓
+        run: python -m screener.enrich --backfill-chips ${{ inputs.days }} --date "$(TZ=Asia/Taipei date +%F)"
+      - name: 存檔
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/extras
+          if git diff --cached --quiet; then echo "沒有變更"; else
+            git commit -m "補抓籌碼與營收歷史 $(TZ=Asia/Taipei date +%F)"
+            git pull --rebase && git push
+          fi

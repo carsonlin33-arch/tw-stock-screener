@@ -347,12 +347,45 @@ def save_history(df: pd.DataFrame, keep_days: int) -> None:
     df.to_csv(HISTORY_FILE, index=False, compression="gzip")
 
 
+def _extend_back(hist: pd.DataFrame, stocks: pd.DataFrame, markets: list[str], keep_days: int,
+                 max_weekdays: int = 150) -> pd.DataFrame:
+    """歷史天數不到 keep_days（例如把 history_days 調大）時，往前補抓較早的交易日。
+
+    每次最多抓 max_weekdays 個工作日（約 15~20 分鐘），不夠的下次執行再補；抓不到就維持原樣。
+    """
+    have = hist.date.nunique()
+    if hist.empty or have >= keep_days:
+        return hist
+    need = keep_days - have
+    first = dt.date.fromisoformat(hist.date.min())
+    n = min(max_weekdays, int(need * 1.1) + 5)  # 多抓一點，抵銷國定假日
+    days, d = [], first
+    while len(days) < n:
+        d -= dt.timedelta(days=1)
+        if d.weekday() < 5:
+            days.append(d)
+    days.reverse()
+    log.info("歷史只有 %d 天（設定 %d 天），往前補抓 %d 個工作日（%s ~ %s）", have, keep_days, len(days), days[0], days[-1])
+    try:
+        old = fetch_official_range(days, markets)
+    except Exception as e:  # noqa: BLE001 — 補抓失敗不能影響今天的篩選
+        log.warning("往前補抓失敗，下次再試：%s", e)
+        return hist
+    if old.empty:
+        return hist
+    old = old[old.code.isin(set(stocks.code))][COLS]
+    log.info("往前補抓完成：%d 筆、%d 個交易日", len(old), old.date.nunique())
+    return pd.concat([old, hist], ignore_index=True).drop_duplicates(["date", "code"], keep="last")
+
+
 def update_history(
     target: dt.date, markets: list[str], keep_days: int, source: str = "auto"
 ) -> pd.DataFrame:
     """補齊歷史資料到 target 日，回傳完整歷史（長表）。"""
     hist = load_history()
     stocks = load_stock_list(markets)
+    if source in ("auto", "official"):
+        hist = _extend_back(hist, stocks, markets, keep_days)
 
     if hist.empty:
         # 首次執行：約 keep_days 個交易日 ≈ keep_days*1.5 個日曆天

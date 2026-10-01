@@ -62,7 +62,7 @@ def fetch_quotes(stocks: pd.DataFrame, batch: int = 50) -> tuple[pd.DataFrame, s
                 continue
             for q in j.get("msgArray", []):
                 row = {"code": q.get("c"), "name": q.get("n"), "price": _price(q), "open": _f(q.get("o")),
-                       "high": _f(q.get("h")), "yclose": _f(q.get("y")), "vol_lots": _f(q.get("v")) or 0,
+                       "high": _f(q.get("h")), "low": _f(q.get("l")), "yclose": _f(q.get("y")), "vol_lots": _f(q.get("v")) or 0,
                        "time": q.get("t"), "date": q.get("d")}
                 old = got.get(row["code"])
                 if old is None or row["price"] is not None:

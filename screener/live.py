@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from . import enrich, fetch, global_mkt, intraday, notify, positions, sentiment
+from . import enrich, fetch, global_mkt, intraday, notify, positions, rules, sentiment, tech
 from .qday import quarter_info
 
 log = logging.getLogger("live")
@@ -146,6 +146,34 @@ def restore_state(today: str) -> dict:
 # ------------------------------------------------------------------ 單次掃描
 _LAST_PX: dict[str, float] = {}
 _EXT: dict[str, dict] = {}  # 本益比、月營收年增、外資買賣超、注意/處置（前一天的資料）
+_TECH: dict[str, dict] = {}  # RS（前一天收盤）
+_GRANK: dict[str, int] = {}  # 產業 → 族群強弱排名（前一天收盤）
+_TPL_REF: pd.DataFrame | None = None  # 趨勢樣板：昨天為止的均線合計、52 週高低點
+
+
+def load_daily_refs(hist: pd.DataFrame) -> pd.DataFrame | None:
+    """讀收盤後產生的 RS、族群排名、寬度歷史，並算好盤中趨勢樣板要用的基準。回傳寬度歷史。"""
+    global _TPL_REF
+    ex = ROOT / "data" / "extras"
+    try:
+        t = pd.read_csv(ex / "tech.csv", dtype={"code": str}).set_index("code")
+        _TECH.update(t[["rs"]].to_dict("index"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("RS 資料載入失敗：%s", e)
+    try:
+        g = json.loads((ex / "groups.json").read_text("utf-8"))
+        _GRANK.update({x["ind"]: x["rank"] for x in g.get("groups", [])})
+    except Exception as e:  # noqa: BLE001
+        log.warning("族群排名載入失敗：%s", e)
+    try:
+        _TPL_REF = tech.tpl_ref(rules.Panel(hist))
+    except Exception as e:  # noqa: BLE001
+        log.warning("趨勢樣板基準計算失敗：%s", e)
+    try:
+        return pd.read_csv(ex / "breadth.csv")
+    except Exception as e:  # noqa: BLE001
+        log.warning("寬度歷史載入失敗：%s", e)
+        return None
 
 
 def scan(q: pd.DataFrame, ref: pd.DataFrame, stocks: pd.DataFrame, lc: dict, now: dt.datetime,
@@ -177,8 +205,18 @@ def scan(q: pd.DataFrame, ref: pd.DataFrame, stocks: pd.DataFrame, lc: dict, now
     q["hit"] = cond.fillna(False)
     # 族群熱度：同產業中其他「預估爆量＋漲 3% 以上」的家數（回測：3~5 家時突破表現最好，6 家以上偏過熱）
     su = ((q.proj_x >= lc.get("volume_multiple", 3)) & (q.chg >= 3) & (q.vol_lots >= 300)).fillna(False).astype(int)
-    grp = su.groupby(q.industry.where(q.industry != "", "_")).transform("sum")
+    ind = q.industry.where(q.industry != "", "_")
+    grp = su.groupby(ind).transform("sum")
     q["peers"] = (grp - su).where(q.industry != "", 0)
+    surging = q[su.astype(bool) & (q.industry != "")].groupby("industry").code.apply(list).to_dict()
+    q["peers_list"] = [[c for c in surging.get(i, []) if c != code] for code, i in zip(q.code, q.industry)]
+    q["tpl"] = None
+    if _TPL_REF is not None:
+        try:
+            qi = q.set_index("code")
+            q["tpl"] = tech.tpl_live(qi.price, qi.high, qi["low"] if "low" in qi else qi.price, _TPL_REF).reindex(q.code).values
+        except Exception as e:  # noqa: BLE001
+            log.warning("盤中趨勢樣板失敗：%s", e)
     return q
 
 
@@ -229,12 +267,16 @@ def stock_row(r, first: dict | None = None) -> dict:
          "price": _num(r["price"]), "chg": _num(r["chg"]), "vol_lots": _num(r["vol_lots"], 0),
          "vol_x": _num(r["vol_x"], 1), "proj_x": _num(r["proj_x"], 1), "watch": bool(r["watch"]), "hit": bool(r["hit"]),
          "locked": bool(r.get("locked")), "noprice": r["price"] is None or pd.isna(r["price"]),
-         "peers": int(r.get("peers") or 0)}
+         "peers": int(r.get("peers") or 0), "peers_list": list(r.get("peers_list") or []),
+         "tpl": None if r.get("tpl") is None or pd.isna(r.get("tpl")) else bool(r.get("tpl")),
+         "rs": _num((_TECH.get(r["code"]) or {}).get("rs"), 0), "group_rank": _GRANK.get(r["industry"])}
     x = _EXT.get(r["code"])
     if x:
         d.update(pe=_num(x.get("pe"), 1), rev_yoy=_num(x.get("rev_yoy"), 0), foreign=_num(x.get("foreign"), 0),
                  flag=x.get("flag") if isinstance(x.get("flag"), str) else None,
                  fstreak=_num(x.get("foreign_streak"), 0), tstreak=_num(x.get("trust_streak"), 0))
+    # 處置股採分盤集中撮合（約每 5~20 分鐘才成交一次），盤中常沒有即時成交價
+    d["split"] = d.get("flag") == "處置"
     if first:
         d.update(first_time=first["time"], first_price=_num(first["price"]),
                  since=_num((r["price"] / first["price"] - 1) * 100) if r["price"] and first["price"] else None)
@@ -247,7 +289,7 @@ def save_alert_log(today: str, alerts: list[dict], official: dict | None) -> Non
         return
     off = {s["code"] for s in (official or {}).get("stocks", [])}
     cols = ["code", "name", "industry", "market", "first_time", "first_price", "price", "chg",
-            "vol_lots", "vol_x", "proj_x", "watch", "peers", "hit"]
+            "vol_lots", "vol_x", "proj_x", "watch", "peers", "hit", "tpl", "rs", "group_rank"]
     df = pd.DataFrame(alerts).reindex(columns=cols).rename(
         columns={"price": "last_price", "chg": "last_chg", "hit": "still_hit"})
     df.insert(0, "date", today)
@@ -317,6 +359,8 @@ def main(argv=None) -> int:
     hist = fetch.load_history()
     hist = hist[hist.date < today]
     ref = build_ref(hist, int(lc.get("new_high_days", 60)))
+    breadth_hist = load_daily_refs(hist)
+    bh = breadth_hist[breadth_hist.date < today].tail(120)[["date", "above_ma20", "mkt20"]].values.tolist() if breadth_hist is not None else []
     qinfo = quarter_info(today, hist.date.unique())
     try:
         ex = enrich.load()
@@ -377,6 +421,7 @@ def main(argv=None) -> int:
 
             try:
                 senti = sentiment.from_quotes(q, hist)
+                senti["mkt20"] = tech.live_mkt20(breadth_hist, q, today)
             except Exception as e:  # noqa: BLE001
                 log.warning("情緒失敗：%s", e)
                 senti = None
@@ -403,6 +448,7 @@ def main(argv=None) -> int:
                 "market": {k: v for k, v in (senti or {}).items()},
                 "alerts": alerts, "candidates": cands, "holdings": holds, "official": st.get("official"),
                 "quotes": len(q), "state": st, "global": glob, "qinfo": qinfo,
+                "breadth": bh + ([[today, senti.get("above_ma20"), senti.get("mkt20")]] if senti else []),
             }
             publish(_clean(payload))
             save_alert_log(today, alerts, st.get("official"))
