@@ -42,6 +42,21 @@ tr.off td{opacity:.55}
 .empty{padding:28px;text-align:center;color:var(--muted)}
 .foot{color:var(--muted);font-size:12px;margin-top:20px}
 .err{color:var(--up)}
+/* 浮動橫向捲軸：表格在畫面上、但它自己的捲軸不在畫面內時，固定在螢幕底部 */
+.hbar{position:fixed;bottom:0;z-index:40;display:flex;align-items:center;gap:6px;background:var(--surface);
+  border:1px solid var(--line);border-bottom:0;border-radius:10px 10px 0 0;padding:5px 8px;box-shadow:0 -2px 10px rgba(0,0,0,.12)}
+.hbar[hidden]{display:none}
+.hb-track{flex:1;overflow-x:auto;overflow-y:hidden;height:18px;scrollbar-width:auto;scrollbar-color:var(--ink2) transparent}
+.hb-track::-webkit-scrollbar{height:12px}.hb-track::-webkit-scrollbar-thumb{background:var(--ink2);border-radius:6px}
+.hb-track>div{height:1px}
+.hbar button{border:1px solid var(--line);background:var(--chip);color:var(--ink);border-radius:6px;min-width:36px;height:28px;cursor:pointer;font-size:13px;line-height:1}
+.hbar button:hover{border-color:var(--accent)}
+
+.bchart{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-top:10px}
+.bchart .t{font-size:13px;color:var(--ink2)}.bchart .t b{color:var(--ink)}
+.bchart svg{display:block;width:100%;height:110px}
+.warnline{stroke:var(--up);stroke-dasharray:4 3;stroke-width:1}.midline{stroke:var(--line);stroke-width:1}
+.bgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
 </style>
 </head>
 <body>
@@ -50,12 +65,17 @@ tr.off td{opacity:.55}
   <p class="sub" id="status">載入中…</p>
   <div class="kpis" id="mkt"></div>
   <p class="adv" id="adv"></p>
+  <div class="bgrid" id="breadth"></div>
+
+  <h2>🌎 美股隔夜</h2>
+  <p class="hint">費城半導體與台積電 ADR 前一晚的漲跌，常決定台股（尤其電子股）當天開盤方向。</p>
+  <div class="kpis" id="glob"></div>
 
   <h2>🎯 13:12 正式進場提醒</h2>
   <div class="box" id="official"></div>
 
   <h2>⚡ 今日早期預警</h2>
-  <p class="hint">盤中一出現「預估全日量 ≥ 5 日均量 3 倍、漲 3% 以上、突破 60 日新高」就記錄（<span id="astart">09:30</span> 起）。灰色 = 目前已不符合（可能衝高回落）。</p>
+  <p class="hint">盤中一出現「預估全日量 ≥ 5 日均量 3 倍、漲 3% 以上、突破 60 日新高」就記錄（<span id="astart">09:30</span> 起）。灰色 = 目前已不符合（可能衝高回落）。「族群同步」= 同產業其他爆量上漲家數，3～5 家時歷史表現最好（綠色）。「樣板✓」= 符合 Minervini 趨勢樣板；「族群 #N」= 所屬產業在昨天收盤族群強弱的排名。處置股是分盤集中撮合，盤中常抓不到成交價，標示「分盤」。</p>
   <div class="tbl" id="alerts"></div>
 
   <h2>🟡 持股即時（盤中提醒過、尚未出場）</h2>
@@ -79,6 +99,40 @@ const pct=v=>v==null?'—':(v>0?'+':'')+v.toFixed(2)+'%';
 const cls=v=>v==null?'':v>0?'up':v<0?'down':'';
 const num=(v,d=2)=>v==null?'—':v.toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
 const link=r=>`<a href="https://tw.stock.yahoo.com/quote/${r.code}.${r.market==='TPEX'?'TWO':'TW'}" target="_blank" rel="noopener">${r.code}</a> ${esc(r.name)}`;
+const peer=r=>!r.peers?'':`<span class="tag${r.peers>=3&&r.peers<=5?' g':''}" title="同產業其他爆量上漲家數。回測：3～5 家時突破表現最好，6 家以上偏過熱">族群同步 ${r.peers} 家</span>`;
+const extra=r=>(r.tpl===true?'<span class="tag g">樣板✓</span>':r.tpl===false?'<span class="tag">樣板✗</span>':'')
+  +(r.rs!=null?`<span class="tag${r.rs>=80?' g':''}">RS ${r.rs}</span>`:'')
+  +(r.group_rank?`<span class="tag" title="所屬產業在昨天收盤的族群強弱排名">族群 #${r.group_rank}</span>`:'')
+  +(r.peers_list&&r.peers_list.length?`<span class="meta" title="同族群一起爆量上漲">（${r.peers_list.slice(0,6).join('、')}${r.peers_list.length>6?'…':''}）</span>`:'');
+function lineSvg(pts,lo,hi,lines,color){
+  const W=600,H=110,n=pts.length;if(!n)return'';
+  const x=i=>(i/(n-1||1))*(W-40)+36,y=v=>H-12-(v-lo)/(hi-lo)*(H-22);
+  let d='',pen=0;pts.forEach((v,i)=>{if(v==null){pen=0;return}d+=(pen?'L':'M')+x(i).toFixed(1)+' '+y(Math.max(lo,Math.min(hi,v))).toFixed(1);pen=1;});
+  const ls=lines.map(([v,c,t])=>`<line x1="36" x2="${W-4}" y1="${y(v)}" y2="${y(v)}" class="${c}"/><text x="2" y="${y(v)+4}" font-size="11" fill="var(--muted)">${t}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img">${ls}<path d="${d}" fill="none" stroke="${color}" stroke-width="1.8" vector-effect="non-scaling-stroke"/></svg>`;
+}
+// 浮動橫向捲軸（不用滑到表格最底下就能左右捲）
+function floatBar(el){
+  const bar=document.createElement('div');bar.className='hbar';bar.hidden=true;
+  bar.innerHTML='<button type="button" aria-label="往左捲">◀</button><div class="hb-track"><div></div></div><button type="button" aria-label="往右捲">▶</button>';
+  document.body.appendChild(bar);
+  const [bl,br]=bar.querySelectorAll('button'),tr=bar.querySelector('.hb-track'),inner=tr.firstElementChild;
+  bl.onclick=()=>el.scrollBy({left:-el.clientWidth*.6,behavior:'smooth'});
+  br.onclick=()=>el.scrollBy({left:el.clientWidth*.6,behavior:'smooth'});
+  tr.addEventListener('scroll',()=>{if(Math.abs(el.scrollLeft-tr.scrollLeft)>1)el.scrollLeft=tr.scrollLeft;});
+  function upd(){
+    const r=el.getBoundingClientRect(),vh=window.innerHeight;
+    const show=el.scrollWidth>el.clientWidth+2&&r.top<vh-60&&r.bottom>vh+2;
+    bar.hidden=!show;if(!show)return;
+    const left=Math.max(r.left,0),w=Math.min(r.right,window.innerWidth)-left;
+    bar.style.left=left+'px';bar.style.width=w+'px';
+    // 讓捲軸可捲距離和表格一樣，直接同步 scrollLeft
+    inner.style.width=(el.scrollWidth-el.clientWidth+tr.clientWidth)+'px';
+    if(Math.abs(tr.scrollLeft-el.scrollLeft)>1)tr.scrollLeft=el.scrollLeft;
+  }
+  el.addEventListener('scroll',upd);window.addEventListener('scroll',upd,{passive:true});window.addEventListener('resize',upd);
+  new MutationObserver(upd).observe(el,{childList:true,subtree:true});setTimeout(upd,0);
+}
 const tpeStr=()=>new Date().toLocaleString('sv-SE',{timeZone:'Asia/Taipei'});
 const tpeNow=()=>new Date(tpeStr().replace(' ','T'));
 
@@ -111,7 +165,7 @@ function render(d){
   else if(inSession&&age<=10){dot='live';txt='監控中';}
   else if(inSession){dot='stale';txt=`資料延遲（${age} 分鐘沒更新）`;}
   else{txt='今日盤中監控已結束，收盤結果請看每日報表（約 15:30 後）';}
-  $('status').innerHTML=`<span class="dot ${dot}"></span>${txt} ・ 最後更新 ${d.updated.slice(5,16)}（${age<1?'剛剛':age+' 分鐘前'}）・ 第 ${d.scans} 次掃描 ・ 共 ${d.quotes} 檔 ・ <a href="index.html">每日報表</a>`;
+  $('status').innerHTML=`<span class="dot ${dot}"></span>${txt}${d.qinfo?' ・ <b>'+d.qinfo.text+'</b>':''} ・ 最後更新 ${d.updated.slice(5,16)}（${age<1?'剛剛':age+' 分鐘前'}）・ 第 ${d.scans} 次掃描 ・ 共 ${d.quotes} 檔 ・ <a href="index.html">每日報表</a>`;
   $('astart').textContent=d.alert_start||'09:30';
 
   const m=d.market||{};
@@ -119,20 +173,34 @@ function render(d){
   $('mkt').innerHTML=m.level?[
     k(`${m.icon} ${m.level}`,'市場情緒'),k(m.above_ma20.toFixed(0)+'%','站上月線'),
     k(m.up_pct.toFixed(0)+'%','上漲家數'),k(`${m.limit_up} / ${m.limit_down}`,'漲停 / 跌停'),
-    k((d.vol_fraction*100).toFixed(0)+'%','已過全天量（估）')].join(''):'';
+    k((d.vol_fraction*100).toFixed(0)+'%','已過全天量（估）'),
+    ...(m.mkt20!=null?[`<div class="k"><b class="${m.mkt20<-3?'down':m.mkt20>0?'up':''}">${m.mkt20>0?'+':''}${m.mkt20.toFixed(2)}%</b><span>大盤近 20 日（等權）</span></div>`]:[])].join(''):'';
+  const B=m.breadth||d.breadth||[];
+  if(B.length>1){const a=B.map(r=>r[1]),mm=B.map(r=>r[2]),ok=mm.filter(v=>v!=null);
+    $('breadth').innerHTML=`<div class="bchart"><div class="t">站上月線比例（近 ${B.length} 天，最後一點是盤中）<b> ${a.at(-1)==null?'':a.at(-1).toFixed(0)+'%'}</b> ・ 30% 以下不開新倉</div>${lineSvg(a,0,100,[[30,'warnline','30%'],[50,'midline','50%']],'var(--accent)')}</div>
+    <div class="bchart"><div class="t">大盤近 20 日等權報酬 ・ 跌超過 3% 不開新倉</div>${lineSvg(mm,Math.min(-6,...ok),Math.max(6,...ok),[[-3,'warnline','-3%'],[0,'midline','0%']],'var(--ink2)')}</div>`;}
   $('adv').textContent=m.advice||'';
+  const g=d.global||{};
+  $('glob').innerHTML=(g.items||[]).map(x=>`<div class="k"><b class="${x.sym==='^VIX'?cls(-x.chg):cls(x.chg)}">${pct(x.chg)}</b><span>${esc(x.name)} ・ ${x.date}</span></div>`).join('')
+    +(g.adr_premium!=null?k(`${g.adr_premium>0?'+':''}${g.adr_premium}%`,'台積電ADR溢價'):'')
+    ||'<span class="meta">明天開盤後顯示</span>';
 
   const o=d.official;
   $('official').innerHTML=!o?'<span class="meta">13:12 掃描後顯示（與回測相同條件：收盤前買進）</span>':
     o.stocks&&o.stocks.length?`<b>${o.time}</b> 共 ${o.stocks.length} 檔：`+o.stocks.map(s=>`<span class="tag r">${s.code} ${esc(s.name)} ${num(s.price)}</span>`).join(''):
     `<b>${o.time}</b> 今天沒有符合正式條件的股票`;
 
-  table($('alerts'),[['預警時間','l'],['股票','l'],['產業','l'],['預警價'],['現價'],['預警後'],['今日漲跌'],['目前量(張)'],['預估全日量比'],['標記','l']],
-    (d.alerts||[]).map(r=>`<tr class="${r.hit?'':'off'}"><td class="l">${r.first_time}</td><td class="l">${link(r)}</td>
+  // 本益比（虧損或無資料顯示「—」）、月營收年增%、外資前一日買賣超（張）
+  const fund=r=>`<td>${r.pe==null?'—':r.pe.toFixed(1)}</td>`+
+    `<td class="${cls(r.rev_yoy)}">${r.rev_yoy==null?'—':(r.rev_yoy>0?'+':'')+r.rev_yoy.toFixed(0)+'%'}</td>`+
+    `<td class="${cls(r.foreign)}">${r.foreign==null?'—':(r.foreign>0?'+':'')+Math.round(r.foreign).toLocaleString()}${r.fstreak?`<div class="meta">${r.fstreak>0?'連買':'連賣'} ${Math.abs(r.fstreak)} 天</div>`:''}</td>`;
+  const flag=r=>r.flag?`<span class="tag r">${esc(r.flag)}</span>`:'';
+  table($('alerts'),[['預警時間','l'],['股票','l'],['產業','l'],['預警價'],['現價'],['預警後'],['今日漲跌'],['目前量(張)'],['預估全日量比'],['本益比'],['營收年增'],['外資(張)'],['標記','l']],
+    (d.alerts||[]).map(r=>`<tr class="${r.hit||r.noprice||r.split?'':'off'}"><td class="l">${r.first_time}</td><td class="l">${link(r)}</td>
       <td class="l meta">${esc(r.industry)}</td><td>${num(r.first_price)}</td><td>${num(r.price)}</td>
       <td class="${cls(r.since)}">${pct(r.since)}</td><td class="${cls(r.chg)}">${pct(r.chg)}</td>
-      <td>${num(r.vol_lots,0)}</td><td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td>
-      <td class="l">${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${r.hit?'<span class="tag g">仍符合</span>':'<span class="tag">已不符合</span>'}</td></tr>`),
+      <td>${num(r.vol_lots,0)}</td><td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td>${fund(r)}
+      <td class="l">${flag(r)}${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${peer(r)}${r.locked?'<span class="tag r">漲停鎖住（買不到）</span>':''}${r.hit?'<span class="tag g">仍符合</span>':r.split&&(r.noprice||!r.hit)?'<span class="tag w" title="處置股分盤集中撮合，盤中成交價更新很慢">分盤</span>':r.noprice?'<span class="tag">暫無報價</span>':'<span class="tag">已不符合</span>'}${extra(r)}</td></tr>`),
     `今天還沒有早期預警（${d.alert_start||'09:30'} 起記錄）`);
 
   table($('holds'),[['股票','l'],['進場日','l'],['進場價'],['現價'],['報酬'],['今日漲跌'],['目前量(張)'],['預估量 / 爆量日'],['狀態','l']],
@@ -142,10 +210,10 @@ function render(d){
       <td class="l">${r.status==='可能量縮出場'?'<span class="tag w">可能量縮出場</span>':`<span class="tag">${esc(r.status)}</span>`}${r.drop_alert?'<span class="tag r">跌幅警示</span>':''}</td></tr>`),
     '目前沒有持有中的股票');
 
-  table($('cands'),[['股票','l'],['產業','l'],['現價'],['漲跌'],['目前量(張)'],['目前量比'],['預估全日量比'],['標記','l']],
+  table($('cands'),[['股票','l'],['產業','l'],['現價'],['漲跌'],['目前量(張)'],['目前量比'],['預估全日量比'],['本益比'],['營收年增'],['外資(張)'],['標記','l']],
     (d.candidates||[]).map(r=>`<tr><td class="l">${link(r)}</td><td class="l meta">${esc(r.industry)}</td><td>${num(r.price)}</td>
       <td class="${cls(r.chg)}">${pct(r.chg)}</td><td>${num(r.vol_lots,0)}</td><td>${r.vol_x==null?'—':r.vol_x.toFixed(1)+'×'}</td>
-      <td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td><td class="l">${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}</td></tr>`),
+      <td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td>${fund(r)}<td class="l">${flag(r)}${r.split?'<span class="tag w">分盤</span>':''}${r.locked?'<span class="tag r">漲停鎖住（買不到）</span>':''}${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${peer(r)}${extra(r)}</td></tr>`),
     '目前沒有符合條件的股票');
 }
 
@@ -156,6 +224,7 @@ async function tick(){
     render(d);
   }catch(e){$('status').innerHTML=`<span class="err">讀取失敗：${esc(e.message)}，60 秒後重試</span>`;}
 }
+document.querySelectorAll(".tbl").forEach(floatBar);
 tick();setInterval(tick,60000);
 </script>
 </body>

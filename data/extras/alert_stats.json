@@ -1,0 +1,71 @@
+{
+ "from": "2026-10-01",
+ "to": "2026-10-01",
+ "days": 1,
+ "all": {
+  "n": 20,
+  "close_hit": 55.0,
+  "ret3": null,
+  "ret3_n": 0,
+  "ret5": null,
+  "ret5_n": 0
+ },
+ "by_time": [
+  {
+   "bucket": "09:30–10:30",
+   "n": 17,
+   "close_hit": 52.9,
+   "ret3": null,
+   "ret3_n": 0,
+   "ret5": null,
+   "ret5_n": 0
+  },
+  {
+   "bucket": "10:30–12:00",
+   "n": 1,
+   "close_hit": 100.0,
+   "ret3": null,
+   "ret3_n": 0,
+   "ret5": null,
+   "ret5_n": 0
+  },
+  {
+   "bucket": "12:00 後",
+   "n": 2,
+   "close_hit": 50.0,
+   "ret3": null,
+   "ret3_n": 0,
+   "ret5": null,
+   "ret5_n": 0
+  }
+ ],
+ "by_peers": [
+  {
+   "bucket": "0 家",
+   "n": 5,
+   "close_hit": 0.0,
+   "ret3": null,
+   "ret3_n": 0,
+   "ret5": null,
+   "ret5_n": 0
+  },
+  {
+   "bucket": "1~2 家",
+   "n": 7,
+   "close_hit": 71.4,
+   "ret3": null,
+   "ret3_n": 0,
+   "ret5": null,
+   "ret5_n": 0
+  },
+  {
+   "bucket": "6 家以上",
+   "n": 8,
+   "close_hit": 75.0,
+   "ret3": null,
+   "ret3_n": 0,
+   "ret5": null,
+   "ret5_n": 0
+  }
+ ]
+}
