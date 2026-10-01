@@ -6,7 +6,10 @@
 
 檔案：
 - data/extras/exdiv.csv：date, code, market, kind（息／權／權息）, prev_close（除權息前收盤）, ref_price（除權息參考價）,
-  value（權值＋息值，元）, factor（prev_close ÷ ref_price）
+  value（權值＋息值，元）, factor（prev_close ÷ ref_price）,
+  cash_div（每股現金股利，元）, stock_ratio（無償配股：每 1 股配幾股，例如 0.1 = 每千股配 100 股）,
+  rights_ratio（現金增資：每 1 股可認購幾股）, rights_price（認購價）
+  證交所的結果表只有權值＋息值合計，「權」「權息」那幾筆另外查 TWT49UDetail 拆開；櫃買的表本來就有分開。
   含息報酬：除權息日之後的價格 × factor 才能和之前比；連乘所有 factor 就是還原權息。
 - data/extras/exdiv_upcoming.csv：date, code, market, kind, cash_div（元／股）, stock_ratio（無償配股比例）
 - data/extras/bench.csv 加 tr 欄：0050 含息指數（收盤 × 之前所有除息 factor 連乘），和收盤價同一天起算
@@ -28,7 +31,9 @@ log = logging.getLogger("exdiv")
 EXDIV = DIR / "exdiv.csv"
 UPCOMING = DIR / "exdiv_upcoming.csv"
 BENCH = DIR / "bench.csv"
-COLS = ["date", "code", "market", "kind", "prev_close", "ref_price", "value", "factor"]
+COLS = ["date", "code", "market", "kind", "prev_close", "ref_price", "value", "factor",
+        "cash_div", "stock_ratio", "rights_ratio", "rights_price"]
+SPLIT = ["cash_div", "stock_ratio", "rights_ratio", "rights_price"]
 UP_COLS = ["date", "code", "market", "kind", "cash_div", "stock_ratio"]
 KEEP_DAYS = 800  # 保留約兩年
 CODE_RE = re.compile(r"\d{4,6}[A-Z]?")
@@ -57,6 +62,9 @@ def _rows(fields, data, market) -> list[dict]:
     i_d, i_c = _col(fields, "日期"), _col(fields, "代號")
     i_p, i_r = _col(fields, "除權息前收盤"), _col(fields, "除權息參考價")
     i_v, i_k = _col(fields, "權值", "息值"), _col(fields, "權/息")
+    # 櫃買才有：現金股利、每仟股無償配股、現金增資認購價、按持股比例仟股認購
+    i_cash, i_stk = _col(fields, "現金股利"), _col(fields, "無償配股")
+    i_rp, i_rr = _col(fields, "認購價"), _col(fields, "仟股認購")
     if None in (i_d, i_c, i_p, i_r):
         log.warning("%s 除權息欄位對不上：%s", market, fields)
         return []
@@ -67,9 +75,17 @@ def _rows(fields, data, market) -> list[dict]:
         p, ref = _num(r[i_p]), _num(r[i_r])
         if not d or not CODE_RE.fullmatch(code) or not p or not ref:
             continue
-        out.append({"date": d, "code": code, "market": market, "kind": _kind(r[i_k]) if i_k is not None else "",
-                    "prev_close": p, "ref_price": ref, "value": _num(r[i_v]) if i_v is not None else None,
-                    "factor": round(p / ref, 8)})
+        kind = _kind(r[i_k]) if i_k is not None else ""
+        value = _num(r[i_v]) if i_v is not None else None
+        row = {"date": d, "code": code, "market": market, "kind": kind, "prev_close": p, "ref_price": ref,
+               "value": value, "factor": round(p / ref, 8)}
+        if i_cash is not None:
+            row.update(cash_div=_num(r[i_cash]) or 0.0, stock_ratio=(_num(r[i_stk]) or 0.0) / 1000 if i_stk is not None else 0.0,
+                       rights_ratio=(_num(r[i_rr]) or 0.0) / 1000 if i_rr is not None else 0.0,
+                       rights_price=_num(r[i_rp]) or 0.0 if i_rp is not None else 0.0)
+        elif kind == "息":  # 純除息：權值＋息值就是現金股利
+            row.update(cash_div=value, stock_ratio=0.0, rights_ratio=0.0, rights_price=0.0)
+        out.append(row)
     return out
 
 
@@ -85,6 +101,59 @@ def fetch_done(s, start: dt.date, end: dt.date) -> pd.DataFrame:
     for t in _tables(j):
         rows += _rows(t["fields"], t["data"], "TPEX")
     return pd.DataFrame(rows, columns=COLS)
+
+
+def _first_num(s) -> float | None:
+    m = re.search(r"-?\d+(?:\.\d+)?", str(s).replace(",", ""))
+    return float(m.group()) if m else None
+
+
+def fetch_detail(s, code: str, date: str) -> dict | None:
+    """證交所單一股票的除權息明細：現金股利、每千股無償配股、現金增資認購。"""
+    j = _json(s, "https://www.twse.com.tw/rwd/zh/exRight/TWT49UDetail",
+              {"STK_NO": code, "T1": date.replace("-", ""), "response": "json"})
+    if not j or not j.get("data"):
+        return None
+    f, r = j["fields"], j["data"][0]
+    i_cash, i_stk = _col(f, "現金股利"), _col(f, "無償配股")
+    i_rp, i_rr = _col(f, "認購金額"), _col(f, "每千股認購")
+    if i_cash is None or i_stk is None:
+        log.warning("除權息明細欄位對不上：%s", f)
+        return None
+    g = lambda i: (_first_num(r[i]) or 0.0) if i is not None else 0.0
+    return {"cash_div": g(i_cash), "stock_ratio": g(i_stk) / 1000, "rights_ratio": g(i_rr) / 1000, "rights_price": g(i_rp)}
+
+
+def fill_details(s, df: pd.DataFrame, old: pd.DataFrame, limit: int = 600) -> int:
+    """證交所「權」「權息」沒拆開的：先從舊檔沿用，沒有才去查明細。"""
+    for c in SPLIT:
+        if c not in df.columns:
+            df[c] = np.nan
+    if len(old) and "cash_div" in old.columns:
+        prev = old.dropna(subset=["cash_div"]).set_index(["date", "code"])[SPLIT]
+        key = pd.MultiIndex.from_frame(df[["date", "code"]])
+        miss = df.cash_div.isna().values & key.isin(prev.index)
+        if miss.any():
+            df.loc[miss, SPLIT] = prev.reindex(key[miss]).values
+    cash_only = df.cash_div.isna() & (df.kind == "息")
+    df.loc[cash_only, "cash_div"] = df.loc[cash_only, "value"]
+    df.loc[cash_only, ["stock_ratio", "rights_ratio", "rights_price"]] = 0.0
+    todo = df.index[df.cash_div.isna() & (df.market == "TWSE")][:limit]
+    n = 0
+    for i in todo:
+        try:
+            d = fetch_detail(s, df.at[i, "code"], df.at[i, "date"])
+        except Exception as e:  # noqa: BLE001
+            log.warning("除權息明細 %s %s 失敗：%s", df.at[i, "code"], df.at[i, "date"], e)
+            d = None
+        if d:
+            for k, v in d.items():
+                df.at[i, k] = v
+            n += 1
+        time.sleep(1.5)
+    if len(todo):
+        log.info("除權息明細補了 %d／%d 筆", n, len(todo))
+    return n
 
 
 def fetch_upcoming(s) -> pd.DataFrame:
@@ -120,7 +189,9 @@ def update(today: dt.date, s=None) -> dict:
     """第一次補兩年，之後每天重抓最近 30 天（避免漏掉晚公布的）＋即將除權息清單，順便更新 0050 含息指數。"""
     s = s or _session()
     old = pd.read_csv(EXDIV, dtype={"code": str}) if EXDIV.exists() else pd.DataFrame(columns=COLS)
-    start = today - dt.timedelta(days=30 if len(old) else KEEP_DAYS)
+    # 舊檔還沒有拆現金／配股欄位（或沒有舊檔）就整段重抓
+    full = not len(old) or "cash_div" not in old.columns
+    start = today - dt.timedelta(days=KEEP_DAYS if full else 30)
     new = []
     # 證交所一次查太長會被擋，分段（每段約半年）
     a = start
@@ -133,10 +204,12 @@ def update(today: dt.date, s=None) -> dict:
         a = b + dt.timedelta(days=1)
         time.sleep(2)
     df = pd.concat([old, *new], ignore_index=True).drop_duplicates(["date", "code"], keep="last")
-    df = df[df.date >= (today - dt.timedelta(days=KEEP_DAYS)).isoformat()].sort_values(["date", "code"])
+    df = df[df.date >= (today - dt.timedelta(days=KEEP_DAYS)).isoformat()].sort_values(["date", "code"]).reset_index(drop=True)
+    got_detail = fill_details(s, df, old)
     DIR.mkdir(parents=True, exist_ok=True)
-    df.to_csv(EXDIV, index=False)
-    got = {"exdiv": len(df), "exdiv_new": int(sum(len(n) for n in new))}
+    df.reindex(columns=COLS).to_csv(EXDIV, index=False)
+    got = {"exdiv": len(df), "exdiv_new": int(sum(len(n) for n in new)), "exdiv_detail": got_detail,
+           "exdiv_unsplit": int(df.cash_div.isna().sum())}
     try:
         up = fetch_upcoming(s)
         if len(up):
