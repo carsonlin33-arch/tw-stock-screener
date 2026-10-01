@@ -95,12 +95,16 @@ def daytrade(s, d: dt.date) -> pd.DataFrame:
     return pd.DataFrame(out, columns=["code", "dt_vol"])
 
 
+_HIST_CACHE: list = []
+
+
 def _volume_map(date: str) -> pd.Series:
-    """某天各股成交股數（從 history.csv.gz）。"""
+    """某天各股成交股數（從 history.csv.gz，讀一次後快取）。"""
     from . import fetch
-    h = fetch.load_history()
-    h = h[h.date == date]
-    return h.set_index("code").volume
+    if not _HIST_CACHE:
+        _HIST_CACHE.append(fetch.load_history()[["date", "code", "volume"]])
+    h = _HIST_CACHE[0]
+    return h[h.date == date].drop_duplicates("code").set_index("code").volume
 
 
 def _trading_days() -> list[str]:
@@ -119,8 +123,18 @@ def update_margin_history(s, d: dt.date, backfill: int = 25) -> dict:
     if d.isoformat() not in days:
         days.append(d.isoformat())
     todo = [x for x in reversed(days) if x not in set(mh.date)][: backfill + 1]
-    vol = None
-    for x in todo:
+
+    def save():
+        nonlocal mh, th
+        keep = sorted(set(mh.date))[-MARGIN_KEEP:]
+        mh = mh[mh.date.isin(keep)].drop_duplicates(["date", "code"], keep="last").sort_values(["date", "code"])
+        th = th[th.date.isin(keep)].drop_duplicates(["date", "code"], keep="last").sort_values(["date", "code"])
+        DIR.mkdir(parents=True, exist_ok=True)
+        mh.to_csv(MARGIN_HIST, index=False)
+        th.to_csv(DT_HIST, index=False)
+        return keep
+
+    for i, x in enumerate(todo, 1):
         day = dt.date.fromisoformat(x)
         try:
             m = margin(s, day)
@@ -136,13 +150,10 @@ def update_margin_history(s, d: dt.date, backfill: int = 25) -> dict:
             vol = _volume_map(x)
             t["dt_ratio"] = (t.dt_vol * 1000 / t.code.map(vol).where(lambda v: v > 0) * 100).round(2)
             th = pd.concat([th[th.date != x], t.assign(date=x)[DT_COLS]], ignore_index=True)
-        log.info("融資融券 %s：%d 檔；當沖 %d 檔", x, len(m), len(t))
-    keep = sorted(set(mh.date))[-MARGIN_KEEP:]
-    mh = mh[mh.date.isin(keep)].drop_duplicates(["date", "code"], keep="last").sort_values(["date", "code"])
-    th = th[th.date.isin(keep)].drop_duplicates(["date", "code"], keep="last").sort_values(["date", "code"])
-    DIR.mkdir(parents=True, exist_ok=True)
-    mh.to_csv(MARGIN_HIST, index=False)
-    th.to_csv(DT_HIST, index=False)
+        log.info("[%d/%d] 融資融券 %s：%d 檔；當沖 %d 檔", i, len(todo), x, len(m), len(t))
+        if i % 20 == 0:
+            save()  # 補很多天時分段存檔，中途中斷也不會全部白抓
+    keep = save()
     return {"margin_days": len(keep), "daytrade_days": th.date.nunique()}
 
 
@@ -165,6 +176,7 @@ def margin_metrics() -> pd.DataFrame:
         b0 = bal.iloc[-6]
         out["margin_5d_pct"] = ((bal.iloc[-1] / b0.where(b0 > 0) - 1) * 100).round(2)
     out["margin_days"] = len(days)
+    out["margin_date"] = days[-1]
     if DT_HIST.exists():
         t = pd.read_csv(DT_HIST, dtype={"code": str})
         if len(t):

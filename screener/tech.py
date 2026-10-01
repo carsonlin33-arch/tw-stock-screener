@@ -115,9 +115,12 @@ def save_breadth(path: Path, p) -> pd.DataFrame:
     return new
 
 
-def live_mkt20(breadth_df: pd.DataFrame, q: pd.DataFrame) -> float | None:
-    """盤中的近 20 日等權報酬：前 19 天收盤的 ew_ret ＋ 今天盤中的等權報酬。"""
-    if breadth_df is None or len(breadth_df) < 19:
+def live_mkt20(breadth_df: pd.DataFrame, q: pd.DataFrame, today: str) -> float | None:
+    """盤中的近 20 日等權報酬：今天以前 19 天收盤的 ew_ret ＋ 今天盤中的等權報酬。"""
+    if breadth_df is None:
+        return None
+    breadth_df = breadth_df[breadth_df.date < today]
+    if len(breadth_df) < 19:
         return None
     d = q[(q.price > 0) & (q.yclose > 0)]
     if d.empty:
@@ -128,12 +131,19 @@ def live_mkt20(breadth_df: pd.DataFrame, q: pd.DataFrame) -> float | None:
 
 
 # ------------------------------------------------------------------ K 線訊號點
+def surge_frame(p) -> pd.DataFrame:
+    """爆量突破 60 日新高（與「爆量突破新高（收盤確認）」策略同條件）：
+    量 ≥ 前 5 日均量 3 倍、漲 ≥ 3%、紅K、收盤 > 前 60 日最高價。"""
+    c = p.close
+    return ((p.volume >= 3 * p.vol_avg(5)) & (p.change_pct >= 3) & ((c - p.open) / p.prev_close > 0)
+            & (c > p.high.shift(1).rolling(60, min_periods=60).max()) & p.traded).fillna(False)
+
+
 def signals(p, codes: list[str], days: int, shrink: float = 0.5) -> dict[str, list[list]]:
-    """▲ 爆量突破 60 日新高（量 ≥ 前 5 日均量 3 倍、漲 ≥ 3%、紅K、收盤 > 前 60 日最高價）。
-    ▼ 買進後第一次收盤量 < 爆量日 × shrink（漲停日的量縮不算）。回傳 {code: [[日期, "B"/"S"], ...]}。"""
+    """▲ 爆量突破 60 日新高（surge_frame）。
+    ▼ 之後第一次收盤量 < 爆量日 × shrink（漲停日的量縮不算）。回傳 {code: [[日期, "B"/"S"], ...]}。"""
     vol, c = p.volume, p.close
-    surge = ((vol >= 3 * p.vol_avg(5)) & (p.change_pct >= 3) & ((c - p.open) / p.prev_close > 0)
-             & (c > p.high.shift(1).rolling(60, min_periods=60).max()) & p.traded)
+    surge = surge_frame(p)
     limit = p.traded & p.traded.shift(1, fill_value=False) & (c >= p.limit_price(True) - 1e-6) & (p.change_pct.abs() <= 10.5)
     idx = c.index
     start = max(0, len(idx) - days)
