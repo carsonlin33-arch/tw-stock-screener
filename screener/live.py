@@ -445,7 +445,7 @@ def main(argv=None) -> int:
                 "updated": now.strftime("%Y-%m-%d %H:%M:%S"), "date": today, "scans": scans,
                 "interval_min": interval / 60, "end": lc.get("end", "13:25"),
                 "vol_fraction": round(vol_fraction(now), 3), "alert_start": lc.get("alert_start", "09:30"),
-                "market": {k: v for k, v in (senti or {}).items()},
+                "market": {**(senti or {}), "breadth": bh + ([[today, senti.get("above_ma20"), senti.get("mkt20")]] if senti else [])},
                 "alerts": alerts, "candidates": cands, "holdings": holds, "official": st.get("official"),
                 "quotes": len(q), "state": st, "global": glob, "qinfo": qinfo,
                 "breadth": bh + ([[today, senti.get("above_ma20"), senti.get("mkt20")]] if senti else []),
