@@ -6,6 +6,10 @@ on:
       date:
         description: "日期 YYYY-MM-DD"
         default: ""
+      probe:
+        description: "只印出候選資料來源的欄位格式"
+        type: boolean
+        default: false
 
 jobs:
   test:
@@ -19,4 +23,7 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: |
-          if [ -n "${{ inputs.date }}" ]; then python -m screener.enrich --test --date ${{ inputs.date }}; else python -m screener.enrich --test; fi
+          ARGS=""
+          if [ -n "${{ inputs.date }}" ]; then ARGS="$ARGS --date ${{ inputs.date }}"; fi
+          if [ "${{ inputs.probe }}" = "true" ]; then ARGS="$ARGS --probe"; else ARGS="$ARGS --test"; fi
+          python -m screener.enrich $ARGS

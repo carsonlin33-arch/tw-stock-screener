@@ -342,14 +342,65 @@ def load() -> pd.DataFrame:
     return pd.concat(frames, axis=1) if frames else pd.DataFrame()
 
 
+def probe(s, d: dt.date) -> None:
+    """印出候選資料來源的欄位與前兩列，用來確認 API 格式（在 GitHub Actions 上跑）。"""
+    ymd, slash = d.strftime("%Y%m%d"), d.strftime("%Y/%m/%d")
+    roc_y, m = d.year - 1911, d.month - 1 or 12
+    if d.month == 1:
+        roc_y -= 1
+    urls = [
+        ("TWSE 融資融券", "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN", {"date": ymd, "selectType": "STOCK", "response": "json"}),
+        ("TPEX 融資融券", "https://www.tpex.org.tw/www/zh-tw/margin/balance", {"date": slash, "response": "json"}),
+        ("TWSE 當沖", "https://www.twse.com.tw/rwd/zh/dayTrading/TWTB4U", {"date": ymd, "selectType": "All", "response": "json"}),
+        ("TPEX 當沖 stat", "https://www.tpex.org.tw/www/zh-tw/intraday/stat", {"date": slash, "response": "json"}),
+        ("TPEX 當沖 trading", "https://www.tpex.org.tw/www/zh-tw/intraday/trading", {"type": "Daily", "date": slash, "response": "json"}),
+        ("MOPS 上市營收", f"https://mopsov.twse.com.tw/nas/t21/sii/t21sc03_{roc_y}_{m}_0.html", None),
+        ("MOPS 上櫃營收", f"https://mopsov.twse.com.tw/nas/t21/otc/t21sc03_{roc_y}_{m}_0.html", None),
+        ("MOPS 上市營收(舊網域)", f"https://mops.twse.com.tw/nas/t21/sii/t21sc03_{roc_y}_{m}_0.html", None),
+    ]
+    for name, url, params in urls:
+        print(f"\n===== {name}  {url}  {params}")
+        try:
+            r = s.get(url, params=params, timeout=30)
+        except requests.RequestException as e:
+            print("  連線失敗", e)
+            continue
+        print("  HTTP", r.status_code, "長度", len(r.content), "type", r.headers.get("content-type"))
+        if params is None:
+            txt = r.content.decode("big5", errors="replace") if b"charset=big5" in r.content[:2000].lower() else r.text
+            print("  ", re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", txt))[:1500])
+            continue
+        try:
+            j = r.json()
+        except ValueError:
+            print("  非 JSON：", r.text[:200])
+            continue
+        print("  keys", list(j)[:20], "stat", j.get("stat"))
+        for i, t in enumerate(j.get("tables") or []):
+            print(f"  [table {i}] title={t.get('title')!r} 筆數={len(t.get('data') or [])}")
+            print("    groups", t.get("groups"))
+            print("    fields", t.get("fields"))
+            for row in (t.get("data") or [])[:2]:
+                print("    row", row)
+        for k in ("fields", "creditFields", "data", "creditList"):
+            if k in j:
+                v = j[k]
+                print(f"  {k}:", v[:2] if isinstance(v, list) else v)
+        time.sleep(3)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--test", action="store_true")
+    ap.add_argument("--probe", action="store_true", help="只印出候選資料來源的欄位格式")
     ap.add_argument("--date")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
     s = _session()
+    if a.probe:
+        probe(s, d)
+        return
     for name, fn in [("本益比", lambda: pe(s, d)), ("三大法人", lambda: institutional(s, d)),
                      ("月營收", lambda: revenue(s)), ("重大訊息", lambda: announcements(s)),
                      ("注意處置", lambda: warnings_list(s))]:
