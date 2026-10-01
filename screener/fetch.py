@@ -273,6 +273,22 @@ def update_bench(new: pd.DataFrame | None, keep_days: int) -> None:
             except Exception as e:  # noqa: BLE001
                 log.warning("對照組 ETF 用 Yahoo 補歷史失敗（明天再試）：%s", e)
         df = pd.concat([old, *add], ignore_index=True).drop_duplicates(["date", "code"], keep="last")
+        # 和 history 的交易日對齊：Yahoo 偶爾缺某天、或休市日（颱風假）多一筆
+        days = set(load_history().date.unique())
+        if days:
+            df = df[df.date.isin(days) | (df.date > max(days))]
+            gap = sorted(days - set(df.date))[-10:]
+            if gap:
+                s = requests.Session()
+                for d in gap:
+                    try:
+                        t = fetch_twse_day(s, dt.date.fromisoformat(d))
+                        if t is not None:
+                            df = pd.concat([df, t[t.code.isin(list(BENCH_CODES))][COLS]], ignore_index=True)
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("對照組 ETF 補 %s 失敗：%s", d, e)
+                    time.sleep(REQUEST_GAP)
+                log.info("對照組 ETF 補缺漏日 %s", gap)
         keep = sorted(df.date.unique())[-keep_days:]
         BENCH_F.parent.mkdir(parents=True, exist_ok=True)
         df[df.date.isin(keep)].sort_values(["code", "date"]).to_csv(BENCH_F, index=False)
