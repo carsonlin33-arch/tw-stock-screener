@@ -490,7 +490,7 @@ def inputs_from_html(html: str) -> dict:
         m = re.search(rf"^const {name}=(.*);$", html, re.M)
         return json.loads(m.group(1)) if m else default
 
-    sub = re.search(r"資料日期 (\S+?)（.*?）・ 共掃描 ([\d,]+) 檔", html)
+    sub = re.search(r"資料日期 (\S+?)(?:（.*?）)?\s*・ 共掃描 ([\d,]+) 檔", html)  # 舊版報表沒有季別文字
     return {"title": re.search(r"<h1>(.*?)</h1>", html).group(1), "date": sub.group(1),
             "scanned": int(sub.group(2).replace(",", "")),
             "spark_days": int(re.search(r"近(\d+)日走勢", html).group(1)),
