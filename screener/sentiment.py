@@ -4,6 +4,10 @@
   <33% 極度悲觀：策略平均每筆跑贏大盤 +0.2%（最差）
   33~46 偏悲觀 +0.9%｜46~57 中性 +1.45%（最佳）｜57~69 偏樂觀 +0.9%｜>69 極度樂觀 +0.4%
 另外：情緒極度悲觀時，大盤之後 20 天平均 +3%、上漲機率 76%（恐慌常是短線低點）。
+
+2026/10 起「站上月線比例」與「大盤近 20 日」改用和 data/extras/breadth.csv 相同的口徑（見 tech.breadth）：
+站上月線只算 20 日均量 ≥ 100 張的股票；近 20 日 = 全部有成交股票的等權日報酬（截 ±11%）連乘。
+Cowork 用 5 年資料比對過：新舊站上月線相關 0.999（新的平均低 1.5 個百分點），分級門檻照用。
 """
 from __future__ import annotations
 
@@ -37,12 +41,11 @@ def from_history(hist: pd.DataFrame) -> dict:
     univ = traded & (V / 1000 >= 100)
     n = univ.sum(axis=1).replace(0, np.nan)
     chg = C / C.shift(1) - 1
-    ma20, ma60 = C.rolling(20).mean(), C.rolling(60).mean()
+    ma60 = C.rolling(60).mean()
     nh = C > H.shift(1).rolling(60, min_periods=60).max()
     nl = C < L.shift(1).rolling(60, min_periods=60).min()
     s = pd.DataFrame({
         "up_pct": ((chg > 0) & univ).sum(axis=1) / n * 100,
-        "above_ma20": ((C > ma20) & univ).sum(axis=1) / n * 100,
         "above_ma60": ((C > ma60) & univ).sum(axis=1) / n * 100,
         "new_high": (nh & univ).sum(axis=1),
         "new_low": (nl & univ).sum(axis=1),
@@ -50,8 +53,12 @@ def from_history(hist: pd.DataFrame) -> dict:
         "limit_down": ((chg <= -0.095) & univ).sum(axis=1),
         "surge_pct": ((V >= 3 * V.shift(1).rolling(5).mean()) & univ).sum(axis=1) / n * 100,
     })
-    ew = chg.where(univ).clip(-0.11, 0.11).mean(axis=1).fillna(0)
-    s["mkt20"] = ((1 + ew).rolling(20).apply(np.prod, raw=True) - 1) * 100
+    # 站上月線、近 20 日：和 data/extras/breadth.csv 完全同一套算法
+    from . import rules, tech
+    b = tech.breadth(rules.Panel(hist)).set_index("date")
+    s["above_ma20"] = b.above_ma20.reindex(s.index)
+    s["mkt20"] = b.mkt20.reindex(s.index)
+    s = s.dropna(subset=["above_ma20"])
     last = s.iloc[-1].to_dict()
     prev = s.iloc[-6].to_dict() if len(s) > 6 else {}
     out = {"date": s.index[-1], **{k: round(float(v), 1) for k, v in last.items()},
@@ -63,13 +70,18 @@ def from_history(hist: pd.DataFrame) -> dict:
 
 
 def from_quotes(q: pd.DataFrame, hist: pd.DataFrame) -> dict:
-    """盤中：用即時報價估算。q 需要 code, price, yclose, vol_lots。"""
+    """盤中：用即時報價估算。q 需要 code, price, yclose, vol_lots。
+    站上月線的母體 = 到昨天為止 20 日均量 ≥ 100 張的股票（盤中量還沒走完，用昨天的 20 日均量判斷）。"""
     h = hist.sort_values("date")
-    last19 = h.groupby("code").close.apply(lambda x: x.iloc[-19:].sum() if len(x) >= 19 else np.nan)
-    d = q.set_index("code").join(last19.rename("sum19"))
-    d = d[(d.price > 0) & (d.yclose > 0) & (d.vol_lots >= 100)]
-    ma20 = (d.sum19 + d.price) / 20
-    above = float((d.price > ma20).mean() * 100) if len(d) else float("nan")
+    g = h.groupby("code")
+    last19 = g.close.apply(lambda x: x.iloc[-19:].sum() if len(x) >= 19 else np.nan)
+    avg20 = g.volume.apply(lambda x: x.iloc[-20:].mean() if len(x) >= 20 else np.nan)
+    d = q.set_index("code").join(last19.rename("sum19")).join(avg20.rename("avg20"))
+    d = d[(d.price > 0) & (d.yclose > 0)]
+    liq = d[d.avg20 / 1000 >= 100]
+    ma20 = (liq.sum19 + liq.price) / 20
+    above = float((liq.price > ma20).mean() * 100) if len(liq) else float("nan")
+    d = d[d.vol_lots >= 100]
     out = {"up_pct": round(float((d.price > d.yclose).mean() * 100), 1),
            "above_ma20": round(above, 1),
            "limit_up": int((d.price / d.yclose - 1 >= 0.095).sum()),

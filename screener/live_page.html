@@ -143,7 +143,7 @@ function render(d){
     k(m.up_pct.toFixed(0)+'%','上漲家數'),k(`${m.limit_up} / ${m.limit_down}`,'漲停 / 跌停'),
     k((d.vol_fraction*100).toFixed(0)+'%','已過全天量（估）'),
     ...(m.mkt20!=null?[`<div class="k"><b class="${m.mkt20<-3?'down':m.mkt20>0?'up':''}">${m.mkt20>0?'+':''}${m.mkt20.toFixed(2)}%</b><span>大盤近 20 日（等權）</span></div>`]:[])].join(''):'';
-  const B=d.breadth||[];
+  const B=m.breadth||d.breadth||[];
   if(B.length>1){const a=B.map(r=>r[1]),mm=B.map(r=>r[2]),ok=mm.filter(v=>v!=null);
     $('breadth').innerHTML=`<div class="bchart"><div class="t">站上月線比例（近 ${B.length} 天，最後一點是盤中）<b> ${a.at(-1)==null?'':a.at(-1).toFixed(0)+'%'}</b> ・ 30% 以下不開新倉</div>${lineSvg(a,0,100,[[30,'warnline','30%'],[50,'midline','50%']],'var(--accent)')}</div>
     <div class="bchart"><div class="t">大盤近 20 日等權報酬 ・ 跌超過 3% 不開新倉</div>${lineSvg(mm,Math.min(-6,...ok),Math.max(6,...ok),[[-3,'warnline','-3%'],[0,'midline','0%']],'var(--ink2)')}</div>`;}
