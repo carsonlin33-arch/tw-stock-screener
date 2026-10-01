@@ -249,10 +249,80 @@ def refresh(d: dt.date) -> dict[str, int]:
         got[name] = len(df)
         if len(df):
             df.to_csv(DIR / f"{name}.csv", index=False)
+            if name == "inst":
+                try:
+                    got["inst_hist"] = update_inst_history(s, d, df)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("法人歷史更新失敗：%s", e)
         time.sleep(2)
     (DIR / "updated.json").write_text(json.dumps({"date": d.isoformat(), **got}, ensure_ascii=False))
     log.info("消息面資料：%s", got)
     return got
+
+
+# ------------------------------------------------------------ 法人歷史：算「連續買超 / 賣超幾天」
+INST_HIST = DIR / "inst_hist.csv.gz"
+INST_KEEP = 60  # 保留最近 60 個交易日
+
+
+def update_inst_history(s, d: dt.date, today_df: pd.DataFrame, backfill: int = 20) -> int:
+    """把今天的法人買賣超加進歷史檔；歷史不夠時往前補抓最多 backfill 個交易日。回傳歷史天數。"""
+    cols = ["date", "code", "foreign", "trust"]
+    hist = pd.read_csv(INST_HIST, dtype={"code": str}) if INST_HIST.exists() else pd.DataFrame(columns=cols)
+    today = today_df.assign(date=d.isoformat())[cols]
+    hist = pd.concat([hist[hist.date != d.isoformat()], today], ignore_index=True)
+    have = set(hist.date)
+    if len(have) < backfill:
+        try:
+            from . import fetch
+            days = sorted(fetch.load_history().date.unique())
+        except Exception:  # noqa: BLE001
+            days = []
+        need = [x for x in days if x < d.isoformat() and x not in have][-(backfill - len(have)):]
+        for x in reversed(need):
+            try:
+                df = institutional(s, dt.date.fromisoformat(x))
+            except Exception as e:  # noqa: BLE001
+                log.warning("補抓法人 %s 失敗：%s", x, e)
+                df = pd.DataFrame()
+            if len(df):
+                hist = pd.concat([hist, df.assign(date=x)[cols]], ignore_index=True)
+                log.info("補抓法人 %s：%d 筆", x, len(df))
+            time.sleep(3)
+    keep = sorted(set(hist.date))[-INST_KEEP:]
+    hist = hist[hist.date.isin(keep)].drop_duplicates(["date", "code"], keep="last").sort_values(["date", "code"])
+    hist.to_csv(INST_HIST, index=False)
+    return len(keep)
+
+
+def _streak(s: pd.Series) -> int:
+    """最近連續同方向的天數：正 = 連續買超，負 = 連續賣超，0 = 最近一天沒進出。"""
+    v = [x for x in s.tolist()]
+    if not v or pd.isna(v[-1]) or v[-1] == 0:
+        return 0
+    sign = 1 if v[-1] > 0 else -1
+    n = 0
+    for x in reversed(v):
+        if pd.isna(x) or x == 0 or (x > 0) != (sign > 0):
+            break
+        n += 1
+    return sign * n
+
+
+def inst_streaks() -> pd.DataFrame:
+    """每檔：外資／投信連續買賣超天數、近 5 日累計（張）。"""
+    if not INST_HIST.exists():
+        return pd.DataFrame()
+    h = pd.read_csv(INST_HIST, dtype={"code": str}).sort_values("date")
+    days = sorted(h.date.unique())
+    out = pd.DataFrame(index=sorted(h.code.unique()))
+    for k in ["foreign", "trust"]:
+        w = h.pivot(index="date", columns="code", values=k).reindex(days)
+        out[f"{k}_streak"] = pd.Series({c: _streak(w[c]) for c in w.columns})
+        out[f"{k}_5d"] = w.iloc[-5:].sum(min_count=1)
+    out["inst_days"] = len(days)
+    out.index.name = "code"
+    return out
 
 
 def load() -> pd.DataFrame:
@@ -263,6 +333,12 @@ def load() -> pd.DataFrame:
         if f.exists():
             df = pd.read_csv(f, dtype={"code": str}).drop_duplicates("code").set_index("code")
             frames.append(df)
+    try:
+        st = inst_streaks()
+        if len(st):
+            frames.append(st)
+    except Exception as e:  # noqa: BLE001
+        log.warning("法人連續天數計算失敗：%s", e)
     return pd.concat(frames, axis=1) if frames else pd.DataFrame()
 
 

@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from . import enrich, fetch, notify, positions, report, rules, sentiment
+from . import enrich, fetch, groups, notify, positions, report, rules, sentiment
 
 ROOT = Path(__file__).resolve().parent.parent
 SITE_DIR = ROOT / "site"
@@ -92,6 +92,15 @@ def main(argv=None) -> int:
     rcfg = cfg.get("report", {})
     spark_days = int(rcfg.get("spark_days", 60))
     met = rules.metrics(panel, all_codes, spark_days)
+    groups_data = []
+    try:
+        met["rs"] = groups.rs_rating(panel).reindex(met.index)
+        groups_data = groups.industry_strength(panel, fetch.load_stock_list(markets))
+        SITE_DIR.mkdir(parents=True, exist_ok=True)
+        groups.write_ohlc(SITE_DIR / "ohlc.json", panel, all_codes, int(rcfg.get("kline_days", 120)))
+        log.info("族群強弱 %d 個產業；RS 與 K 線資料完成", len(groups_data))
+    except Exception as e:  # noqa: BLE001
+        log.warning("族群／RS／K 線計算失敗：%s", e)
     stocks = fetch.load_stock_list(markets)
 
     # 3a. 市場情緒
@@ -134,7 +143,7 @@ def main(argv=None) -> int:
     rows = report.build_rows(stocks, met, hits, extras, ann_map, news_map)
     title = rcfg.get("title", "台股每日篩選")
     scanned = int(panel.traded.iloc[-1].sum())
-    html_for = lambda link: report.render_html(title, data_date, scanned, rows, strat_info, spark_days, link, senti)
+    html_for = lambda link: report.render_html(title, data_date, scanned, rows, strat_info, spark_days, link, senti, groups_data)
     report.write_site(SITE_DIR, data_date, html_for)
 
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
