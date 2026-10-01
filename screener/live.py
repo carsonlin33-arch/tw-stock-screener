@@ -32,6 +32,8 @@ TZ = ZoneInfo("Asia/Taipei")
 ROOT = fetch.ROOT
 STATE_F = ROOT / "data" / "live_state.json"
 OUT_F = ROOT / "data" / "live.json"
+HEAT_DIR = ROOT / "data" / "group_heat"
+THEMES_F = ROOT / "themes.yaml"  # 細分題材（被動元件、CCL…）：{題材名: [代號, ...]}，沒有這個檔就只看產業
 PUB_DIR = ROOT / ".live_pub"
 
 # 台股一天成交量的累積比例（09:00 起算的分鐘數 → 已完成全天量的比例，含開盤集合競價，約略值）
@@ -208,6 +210,7 @@ def scan(q: pd.DataFrame, ref: pd.DataFrame, stocks: pd.DataFrame, lc: dict, now
     ind = q.industry.where(q.industry != "", "_")
     grp = su.groupby(ind).transform("sum")
     q["peers"] = (grp - su).where(q.industry != "", 0)
+    q["surge"] = su.astype(bool)
     surging = q[su.astype(bool) & (q.industry != "")].groupby("industry").code.apply(list).to_dict()
     q["peers_list"] = [[c for c in surging.get(i, []) if c != code] for code, i in zip(q.code, q.industry)]
     q["tpl"] = None
@@ -218,6 +221,60 @@ def scan(q: pd.DataFrame, ref: pd.DataFrame, stocks: pd.DataFrame, lc: dict, now
         except Exception as e:  # noqa: BLE001
             log.warning("盤中趨勢樣板失敗：%s", e)
     return q
+
+
+def load_themes() -> dict[str, list[str]]:
+    if not THEMES_F.exists():
+        return {}
+    try:
+        t = yaml.safe_load(THEMES_F.read_text("utf-8")) or {}
+        return {str(k): [str(c) for c in v] for k, v in t.items() if isinstance(v, list) and v}
+    except Exception as e:  # noqa: BLE001
+        log.warning("題材清單讀取失敗：%s", e)
+        return {}
+
+
+def group_heat(q: pd.DataFrame, st: dict, hm: str, themes: dict[str, list[str]],
+               main_n: int = 5, main_by: str = "10:00", main_pct: float = 5) -> list[dict]:
+    """每個產業／題材現在有幾檔在發動：
+    surge = 預估爆量＋漲 3% 以上（和「族群同步」同定義）、limit = 漲 9.4% 以上、up7 = 漲 7% 以上、
+    active = surge 或 limit（漲停鎖住常常沒量，只看爆量會漏掉最強的那幾檔）。
+    first5 = 今天第一次達到 active ≥ main_n 家、而且 ≥ 成員數 main_pct% 的時間（記在 state，重啟也接得上）；
+    main_by 之前達到就標「主線」。比例門檻是因為產業分類很粗（電子零組件 200 多檔），只看家數大產業隨便都有 5 家。"""
+    groups = {("產業", k): list(v) for k, v in q[q.industry != ""].groupby("industry").code}
+    groups.update({("題材", k): v for k, v in themes.items()})
+    qi = q.set_index("code")
+    first = st.setdefault("group_first", {})
+    out = []
+    for (kind, name), codes in groups.items():
+        g = qi.loc[qi.index.intersection(codes)]
+        g = g[g.price.notna() & g.chg.notna()]
+        if g.empty:
+            continue
+        key = f"{kind}:{name}"
+        act = g.surge | (g.chg >= 9.4)
+        na, ns, nl, n7 = int(act.sum()), int(g.surge.sum()), int((g.chg >= 9.4).sum()), int((g.chg >= 7).sum())
+        if na >= main_n and na >= len(g) * main_pct / 100 and key not in first:
+            first[key] = hm
+        if na < 2 and key not in first:
+            continue
+        hot = g[act | (g.chg >= 7)].sort_values("chg", ascending=False)
+        out.append({"kind": kind, "name": name, "n": len(g), "active": na, "surge": ns, "limit": nl, "up7": n7,
+                    "avg_chg": _num(g.chg.mean()), "first5": first.get(key), "main": bool(first.get(key, "99") < main_by),
+                    "members": [[c, r["name"], _num(r["chg"]), bool(r["locked"])] for c, r in hot.head(15).iterrows()]})
+    out.sort(key=lambda d: (d["main"], d["active"], d["limit"]), reverse=True)
+    return out
+
+
+def save_heat_log(today: str, heat: list[dict]) -> None:
+    """族群熱度存成 data/group_heat/YYYY-MM-DD.csv（每輪覆蓋成最新），之後統計「10 點前就發動的族群」後面幾天的表現。"""
+    if not heat:
+        return
+    df = pd.DataFrame([{**{k: h[k] for k in ("kind", "name", "n", "active", "surge", "limit", "up7", "avg_chg", "first5", "main")},
+                        "members": " ".join(m[0] for m in h["members"])} for h in heat])
+    df.insert(0, "date", today)
+    HEAT_DIR.mkdir(parents=True, exist_ok=True)
+    df.to_csv(HEAT_DIR / f"{today}.csv", index=False)
 
 
 def holdings_view(q: pd.DataFrame, now: dt.datetime, shrink: float, drop_pct: float) -> list[dict]:
@@ -371,6 +428,9 @@ def main(argv=None) -> int:
         log.warning("消息面資料載入失敗：%s", e)
     watch = watchlist()
     log.info("觀察名單 %d 檔", len(watch))
+    themes = load_themes()
+    if themes:
+        log.info("題材清單 %d 個", len(themes))
     glob = {}
     try:
         tsmc = hist[hist.code == "2330"].sort_values("date").close
@@ -410,6 +470,12 @@ def main(argv=None) -> int:
             alerts.sort(key=lambda d: d["first_time"], reverse=True)
             cands = [stock_row(r) for r in q[q.hit].sort_values("proj_x", ascending=False).head(60).itertuples()]
             holds = holdings_view(q, now, shrink, drop_pct)
+            try:
+                heat = group_heat(q, st, hm, themes, int(lc.get("main_group_n", 5)), lc.get("main_group_by", "10:00"),
+                                  float(lc.get("main_group_pct", 5)))
+            except Exception as e:  # noqa: BLE001
+                log.warning("族群熱度失敗：%s", e)
+                heat = []
 
             # 13:12 正式進場提醒（與回測相同條件）
             if now >= official_t and not st.get("official") and not a.test:
@@ -447,11 +513,12 @@ def main(argv=None) -> int:
                 "vol_fraction": round(vol_fraction(now), 3), "alert_start": lc.get("alert_start", "09:30"),
                 "market": {**(senti or {}), "breadth": bh + ([[today, senti.get("above_ma20"), senti.get("mkt20")]] if senti else [])},
                 "alerts": alerts, "candidates": cands, "holdings": holds, "official": st.get("official"),
-                "quotes": len(q), "state": st, "global": glob, "qinfo": qinfo,
+                "quotes": len(q), "state": st, "global": glob, "qinfo": qinfo, "group_heat": heat[:20],
                 "breadth": bh + ([[today, senti.get("above_ma20"), senti.get("mkt20")]] if senti else []),
             }
             publish(_clean(payload))
             save_alert_log(today, alerts, st.get("official"))
+            save_heat_log(today, heat)
             STATE_F.write_text(json.dumps(st, ensure_ascii=False), "utf-8")
             log.info("%s 掃描 %d 檔｜符合 %d｜今日預警 %d｜持股 %d（%.0f 秒）",
                      hm, len(q), len(cands), len(alerts), len(holds), time.time() - t0)

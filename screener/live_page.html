@@ -74,6 +74,10 @@ tr.off td{opacity:.55}
   <h2>🎯 13:12 正式進場提醒</h2>
   <div class="box" id="official"></div>
 
+  <h2>🔥 族群熱度</h2>
+  <p class="hint">每個產業（和題材清單）現在有幾檔在發動。「發動」= 預估爆量＋漲 3% 以上（和「族群同步」同定義），或漲停（漲停鎖住常常沒量，也算）。<span id="mainrule">10:00 前發動達 5 家（而且至少占該族群 5%）</span>就標<span class="tag r">主線</span>。每天都會記錄下來，之後統計主線族群後面幾天的表現，驗證是真主線還是過熱。</p>
+  <div class="tbl" id="heat"></div>
+
   <h2>⚡ 今日早期預警</h2>
   <p class="hint">盤中一出現「預估全日量 ≥ 5 日均量 3 倍、漲 3% 以上、突破 60 日新高」就記錄（<span id="astart">09:30</span> 起）。灰色 = 目前已不符合（可能衝高回落）。「族群同步」= 同產業其他爆量上漲家數，3～5 家時歷史表現最好（綠色）。「樣板✓」= 符合 Minervini 趨勢樣板；「族群 #N」= 所屬產業在昨天收盤族群強弱的排名。處置股是分盤集中撮合，盤中常抓不到成交價，標示「分盤」。</p>
   <div class="tbl" id="alerts"></div>
@@ -195,6 +199,14 @@ function render(d){
     `<td class="${cls(r.rev_yoy)}">${r.rev_yoy==null?'—':(r.rev_yoy>0?'+':'')+r.rev_yoy.toFixed(0)+'%'}</td>`+
     `<td class="${cls(r.foreign)}">${r.foreign==null?'—':(r.foreign>0?'+':'')+Math.round(r.foreign).toLocaleString()}${r.fstreak?`<div class="meta">${r.fstreak>0?'連買':'連賣'} ${Math.abs(r.fstreak)} 天</div>`:''}</td>`;
   const flag=r=>r.flag?`<span class="tag r">${esc(r.flag)}</span>`:'';
+  const chip=m=>`<span class="tag${m[3]?' r':''}" title="${m[3]?'漲停鎖住':''}">${esc(m[1])} <span class="${m[3]?'':cls(m[2])}">${pct(m[2])}</span></span>`;
+  table($('heat'),[['族群','l'],['發動'],['其中爆量'],['漲停'],['漲 7%+'],['平均漲跌'],['達 5 家','l'],['成員（漲幅排序）','l']],
+    (d.group_heat||[]).map(h=>`<tr><td class="l">${h.kind==='題材'?'<span class="tag w">題材</span>':''}<b>${esc(h.name)}</b><div class="meta">${h.n} 檔</div></td>
+      <td><b>${h.active??h.surge}</b></td><td>${h.surge}</td><td class="${h.limit?'up':''}">${h.limit}</td><td>${h.up7}</td><td class="${cls(h.avg_chg)}">${pct(h.avg_chg)}</td>
+      <td class="l">${h.first5?h.first5:'<span class="meta">—</span>'}${h.main?' <span class="tag r">主線</span>':''}</td>
+      <td class="l" style="white-space:normal;min-width:320px">${(h.members||[]).map(chip).join('')}</td></tr>`),
+    '目前沒有族群有 2 檔以上在發動');
+
   table($('alerts'),[['預警時間','l'],['股票','l'],['產業','l'],['預警價'],['現價'],['預警後'],['今日漲跌'],['目前量(張)'],['預估全日量比'],['本益比'],['營收年增'],['外資(張)'],['標記','l']],
     (d.alerts||[]).map(r=>`<tr class="${r.hit||r.noprice||r.split?'':'off'}"><td class="l">${r.first_time}</td><td class="l">${link(r)}</td>
       <td class="l meta">${esc(r.industry)}</td><td>${num(r.first_price)}</td><td>${num(r.price)}</td>
