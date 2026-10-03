@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 FILE = ROOT / "data" / "positions.csv"
 COLS = ["code", "name", "industry", "signal_date", "signal_time", "alert_price", "entry_price",
         "surge_volume", "status", "exit_signal_date", "exit_reason", "exit_close", "days_held", "est_return_pct",
-        "exit_open"]
+        "exit_open", "close_lu", "lu_lock_min", "rev_yoy"]
 
 
 def load() -> pd.DataFrame:
@@ -51,6 +51,16 @@ def _limit_up(close: float, prev: float | None) -> bool:
     return close >= np.floor(raw / tick + 1e-6) * tick - 1e-6
 
 
+def set_lock_minutes(day: str, mins: dict[str, int]) -> None:
+    """盤中監控結束時寫入：收盤前連續鎖在漲停價幾分鐘（0 = 收盤前沒鎖住）。"""
+    df = load()
+    m = df.signal_date == day
+    if not m.any():
+        return
+    df.loc[m, "lu_lock_min"] = [mins.get(c, 0) for c in df.loc[m, "code"]]
+    save(df)
+
+
 def update(hist: pd.DataFrame, data_date: str, shrink: float = 0.5, max_hold: int = 20,
            stop_pct: float | None = None) -> tuple[list[dict], list[dict]]:
     """用收盤後的完整資料更新持有中的訊號。回傳 (今天出現出場訊號的, 仍持有的)。"""
@@ -82,6 +92,7 @@ def update(hist: pd.DataFrame, data_date: str, shrink: float = 0.5, max_hold: in
             df.at[i, "entry_price"] = close
             df.at[i, "surge_volume"] = vol
             df.at[i, "days_held"] = 0
+            df.at[i, "close_lu"] = int(_limit_up(close, prev.get(r.code)))  # 收盤鎖漲停的那群才有超額，要追蹤買不買得到
             holding.append(df.loc[i].to_dict())
             continue
         if r.signal_date not in dates:
