@@ -185,10 +185,19 @@ def main(argv=None) -> int:
     scan_time = dt.datetime.now(TZ).strftime("%H:%M")
     if not a.test:
         state_f.write_text(json.dumps({"last_run": today, "time": scan_time, "hits": len(hits)}))
+    extras = enrich.load()
+
+    def ex(code, k):
+        if extras.empty or code not in extras.index or k not in extras.columns:
+            return None
+        v = extras.at[code, k]
+        return None if pd.isna(v) else v
+
     if not a.test and len(hits):
         positions.add_signals([{
             "code": r.code, "name": r.name, "industry": r.industry, "signal_date": today, "signal_time": scan_time,
             "alert_price": r.price, "surge_volume": r.vol_lots * 1000,
+            "rev_yoy": None if ex(r.code, "rev_yoy") is None else round(float(ex(r.code, "rev_yoy")), 2),
         } for r in hits.itertuples()])
 
     if a.no_notify or (hits.empty and not ic.get("notify_when_empty", False)):
@@ -200,7 +209,6 @@ def main(argv=None) -> int:
     except Exception as e:  # noqa: BLE001
         log.warning("盤中情緒失敗：%s", e)
         senti = None
-    extras = enrich.load()
     sess = enrich._session()
     ann_map, news_map = {}, {}
     try:
@@ -221,11 +229,6 @@ def main(argv=None) -> int:
         except Exception as e:  # noqa: BLE001
             log.warning("新聞失敗：%s", e)
 
-    def ex(code, k):
-        if extras.empty or code not in extras.index or k not in extras.columns:
-            return None
-        v = extras.at[code, k]
-        return None if pd.isna(v) else v
     title = f"【盤中進場提醒】{today} {scan_time}｜{len(hits)} 檔"
     lines = [f"## 盤中進場提醒 {today} {scan_time}", ""]
     if senti:
@@ -245,6 +248,8 @@ def main(argv=None) -> int:
                 note.append(f"⛔{fl}股")
             if pe is not None and pe < 10:
                 note.append("低本益比（歷史較弱）")
+            if rv is not None and rv <= 0:
+                note.append("營收衰退（回測無超額）")
             if r.code in ann_map:
                 note.append("📢今日有重大訊息")
             lines.append(f"| [{r.code} {r.name}](https://tw.stock.yahoo.com/quote/{r.code}.{mk}) | {r.industry or ''} | "

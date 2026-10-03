@@ -305,6 +305,15 @@ def holdings_view(q: pd.DataFrame, now: dt.datetime, shrink: float, drop_pct: fl
     return sorted(out, key=lambda d: d["ret"] if d["ret"] is not None else 0)
 
 
+def lock_minutes(st: dict) -> dict[str, int]:
+    """最後一次掃描時還鎖在漲停的股票，連續鎖了幾分鐘（掃描間隔 3 分鐘，誤差 ±3 分）。"""
+    last = st.get("last_scan")
+    if not last:
+        return {}
+    m = lambda t: int(t[:2]) * 60 + int(t[3:5])  # noqa: E731
+    return {c: m(last) - m(t) for c, t in (st.get("lock_since") or {}).items()}
+
+
 def official_result(today: str) -> dict | None:
     sf = ROOT / "data" / "intraday_state.json"
     if not sf.exists():
@@ -315,7 +324,8 @@ def official_result(today: str) -> dict | None:
     pos = positions.load()
     pos = pos[pos.signal_date == today]
     return {"time": s.get("time"), "count": s.get("hits", len(pos)),
-            "stocks": [{"code": r.code, "name": r.name, "price": _num(r.alert_price)} for r in pos.itertuples()]}
+            "stocks": [{"code": r.code, "name": r.name, "price": _num(r.alert_price),
+                        "rev_yoy": _num((_EXT.get(r.code) or {}).get("rev_yoy"), 0)} for r in pos.itertuples()]}
 
 
 def stock_row(r, first: dict | None = None) -> dict:
@@ -346,7 +356,8 @@ def save_alert_log(today: str, alerts: list[dict], official: dict | None) -> Non
         return
     off = {s["code"] for s in (official or {}).get("stocks", [])}
     cols = ["code", "name", "industry", "market", "first_time", "first_price", "price", "chg",
-            "vol_lots", "vol_x", "proj_x", "watch", "peers", "hit", "tpl", "rs", "group_rank"]
+            "vol_lots", "vol_x", "proj_x", "watch", "peers", "hit", "tpl", "rs", "group_rank",
+            "locked", "lock_since", "rev_yoy"]
     df = pd.DataFrame(alerts).reindex(columns=cols).rename(
         columns={"price": "last_price", "chg": "last_chg", "hit": "still_hit"})
     df.insert(0, "date", today)
@@ -465,8 +476,17 @@ def main(argv=None) -> int:
                     if r.code not in st["alerts"]:
                         st["alerts"][r.code] = {"time": hm, "price": float(r.price)}
                         st["pending"].append(r.code)
+            # 連續鎖漲停從幾點開始（收盤前一直鎖住的，收盤價大概買不到）
+            ls = st.setdefault("lock_since", {})
+            lk = set(q.code[q.locked])
+            for c in list(ls):
+                if c not in lk:
+                    del ls[c]
+            for c in lk:
+                ls.setdefault(c, hm)
+            st["last_scan"] = hm
             qi = q.set_index("code", drop=False)
-            alerts = [stock_row(qi.loc[c], f) for c, f in st["alerts"].items() if c in qi.index]
+            alerts = [stock_row(qi.loc[c], f) | {"lock_since": ls.get(c)} for c, f in st["alerts"].items() if c in qi.index]
             alerts.sort(key=lambda d: d["first_time"], reverse=True)
             cands = [stock_row(r) for r in q[q.hit].sort_values("proj_x", ascending=False).head(60).itertuples()]
             holds = holdings_view(q, now, shrink, drop_pct)
@@ -538,6 +558,11 @@ def main(argv=None) -> int:
             intraday.main([])
         except Exception as e:  # noqa: BLE001
             log.error("正式提醒失敗：%s", e)
+    if not a.test:
+        try:
+            positions.set_lock_minutes(today, lock_minutes(st))
+        except Exception as e:  # noqa: BLE001
+            log.warning("鎖漲停分鐘數寫入失敗：%s", e)
     log.info("盤中監控結束，共掃描 %d 次", scans)
     return 0
 

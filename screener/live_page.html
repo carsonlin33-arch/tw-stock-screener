@@ -191,7 +191,7 @@ function render(d){
 
   const o=d.official;
   $('official').innerHTML=!o?'<span class="meta">13:12 掃描後顯示（與回測相同條件：收盤前買進）</span>':
-    o.stocks&&o.stocks.length?`<b>${o.time}</b> 共 ${o.stocks.length} 檔：`+o.stocks.map(s=>`<span class="tag r">${s.code} ${esc(s.name)} ${num(s.price)}</span>`).join(''):
+    o.stocks&&o.stocks.length?`<b>${o.time}</b> 共 ${o.stocks.length} 檔：`+o.stocks.map(s=>`<span class="tag r">${s.code} ${esc(s.name)} ${num(s.price)}${s.rev_yoy==null?'':` ・ 營收 ${s.rev_yoy>0?'+':''}${s.rev_yoy.toFixed(0)}%${s.rev_yoy<=0?' ⚠️':''}`}</span>`).join(''):
     `<b>${o.time}</b> 今天沒有符合正式條件的股票`;
 
   // 本益比（虧損或無資料顯示「—」）、月營收年增%、外資前一日買賣超（張）
