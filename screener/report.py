@@ -511,8 +511,11 @@ def rebuild(site_dir: Path, data_path: Path) -> str:
 def write_site(out_dir: Path, date: str, html_for) -> None:
     """寫出 site/：YYYY-MM-DD.html（當日）、index.html（最新）、archive.html（歷史清單）。"""
     out_dir.mkdir(parents=True, exist_ok=True)
+    from . import weekly
+    weeks = weekly.write(out_dir)
     links = ("<a href='live.html'>⚡ 盤中即時</a> ・ <a href='#' onclick='return openClaude()'>🔒 Claude 研判＋虛擬帳戶</a>"
-             " ・ <a href='archive.html'>歷史報表</a>")
+             + (f" ・ <a href='weekly/{weeks[0]}.html'>📅 市場週報</a>" if weeks else "")
+             + " ・ <a href='archive.html'>歷史報表</a>")
     (out_dir / f"{date}.html").write_text(html_for(links), "utf-8")
     (out_dir / "index.html").write_text(html_for(links), "utf-8")
     js = Path(__file__).with_name("claude_link.js")
@@ -527,7 +530,8 @@ def write_site(out_dir: Path, date: str, html_for) -> None:
         "<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
         "<title>歷史報表</title><style>body{font:15px/1.8 sans-serif;max-width:600px;margin:24px auto;padding:0 16px;"
         "background:#f7f7f5;color:#1d1d1b}@media(prefers-color-scheme:dark){body{background:#141413;color:#ecebe6}"
-        "a{color:#7d9cf0}}</style><h2>歷史報表</h2><p><a href='index.html'>← 最新</a></p>"
+        "a{color:#7d9cf0}}</style><h2>歷史報表</h2><p><a href='index.html'>← 最新</a>"
+        + (" ・ <a href='weekly/index.html'>市場週報</a>" if weeks else "") + "</p>"
         f"<ul>{items}</ul>",
         "utf-8",
     )
