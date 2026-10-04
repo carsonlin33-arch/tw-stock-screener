@@ -91,8 +91,9 @@ tr.off td{opacity:.55}
 
   <p class="foot">預估全日量比 = 目前成交量 ÷ 依時間推估的全天比例 ÷ 前 5 日均量（早盤估計誤差較大）。
     資料來源：證交所即時報價，GitHub 每幾分鐘更新一次，網頁每 60 秒自動重新整理，實際延遲約 3～5 分鐘。僅供參考，不構成投資建議。
-    ・ <a href="index.html">每日收盤報表</a></p>
+    ・ <a href="index.html">每日收盤報表</a> ・ <a href="#" onclick="return openClaude()">🔒 Claude 研判＋虛擬帳戶</a></p>
 </div>
+<script src="claude_link.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -169,7 +170,7 @@ function render(d){
   else if(inSession&&age<=10){dot='live';txt='監控中';}
   else if(inSession){dot='stale';txt=`資料延遲（${age} 分鐘沒更新）`;}
   else{txt='今日盤中監控已結束，收盤結果請看每日報表（約 15:30 後）';}
-  $('status').innerHTML=`<span class="dot ${dot}"></span>${txt}${d.qinfo?' ・ <b>'+d.qinfo.text+'</b>':''} ・ 最後更新 ${d.updated.slice(5,16)}（${age<1?'剛剛':age+' 分鐘前'}）・ 第 ${d.scans} 次掃描 ・ 共 ${d.quotes} 檔 ・ <a href="index.html">每日報表</a>`;
+  $('status').innerHTML=`<span class="dot ${dot}"></span>${txt}${d.qinfo?' ・ <b>'+d.qinfo.text+'</b>':''} ・ 最後更新 ${d.updated.slice(5,16)}（${age<1?'剛剛':age+' 分鐘前'}）・ 第 ${d.scans} 次掃描 ・ 共 ${d.quotes} 檔 ・ <a href="index.html">每日報表</a> ・ <a href="#" onclick="return openClaude()">🔒 Claude 研判＋虛擬帳戶</a>`;
   $('astart').textContent=d.alert_start||'09:30';
 
   const m=d.market||{};
