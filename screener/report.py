@@ -392,6 +392,7 @@ function floatBar(el){
 floatBar($('tbl'));
 $('bd').addEventListener('click',e=>{const td=e.target.closest('td.news');if(td&&!e.target.closest('a'))td.classList.toggle('open');});
 </script>
+<script src="claude_link.js"></script>
 </body>
 </html>
 """
@@ -510,9 +511,13 @@ def rebuild(site_dir: Path, data_path: Path) -> str:
 def write_site(out_dir: Path, date: str, html_for) -> None:
     """寫出 site/：YYYY-MM-DD.html（當日）、index.html（最新）、archive.html（歷史清單）。"""
     out_dir.mkdir(parents=True, exist_ok=True)
-    links = "<a href='live.html'>⚡ 盤中即時</a> ・ <a href='archive.html'>歷史報表</a>"
+    links = ("<a href='live.html'>⚡ 盤中即時</a> ・ <a href='#' onclick='return openClaude()'>🔒 Claude 研判＋虛擬帳戶</a>"
+             " ・ <a href='archive.html'>歷史報表</a>")
     (out_dir / f"{date}.html").write_text(html_for(links), "utf-8")
     (out_dir / "index.html").write_text(html_for(links), "utf-8")
+    js = Path(__file__).with_name("claude_link.js")
+    if js.exists():
+        (out_dir / "claude_link.js").write_text(js.read_text("utf-8"), "utf-8")
     live = Path(__file__).with_name("live_page.html")
     if live.exists():
         (out_dir / "live.html").write_text(live.read_text("utf-8"), "utf-8")
