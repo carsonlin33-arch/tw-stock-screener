@@ -63,7 +63,9 @@ def fetch_quotes(stocks: pd.DataFrame, batch: int = 50) -> tuple[pd.DataFrame, s
             for q in j.get("msgArray", []):
                 row = {"code": q.get("c"), "name": q.get("n"), "price": _price(q), "open": _f(q.get("o")),
                        "high": _f(q.get("h")), "low": _f(q.get("l")), "yclose": _f(q.get("y")), "vol_lots": _f(q.get("v")) or 0,
-                       "time": q.get("t"), "date": q.get("d")}
+                       "time": q.get("t"), "date": q.get("d"),
+                       # 五檔第一檔：價格與張數（漲停鎖住時委賣是 "-"，委買第一檔就是排隊買漲停的張數）
+                       "bid1": _f(q.get("b")), "ask1": _f(q.get("a")), "bid1_lots": _f(q.get("g")), "ask1_lots": _f(q.get("f"))}
                 old = got.get(row["code"])
                 if old is None or row["price"] is not None:
                     got[row["code"]] = row
@@ -198,6 +200,7 @@ def main(argv=None) -> int:
             "code": r.code, "name": r.name, "industry": r.industry, "signal_date": today, "signal_time": scan_time,
             "alert_price": r.price, "surge_volume": r.vol_lots * 1000,
             "rev_yoy": None if ex(r.code, "rev_yoy") is None else round(float(ex(r.code, "rev_yoy")), 2),
+            "bid1_lots_1312": r.bid1_lots, "ask1_lots_1312": r.ask1_lots, "vol_lots_1312": r.vol_lots,
         } for r in hits.itertuples()])
 
     if a.no_notify or (hits.empty and not ic.get("notify_when_empty", False)):

@@ -15,7 +15,9 @@ ROOT = Path(__file__).resolve().parent.parent
 FILE = ROOT / "data" / "positions.csv"
 COLS = ["code", "name", "industry", "signal_date", "signal_time", "alert_price", "entry_price",
         "surge_volume", "status", "exit_signal_date", "exit_reason", "exit_close", "days_held", "est_return_pct",
-        "exit_open", "close_lu", "lu_lock_min", "rev_yoy"]
+        "exit_open", "close_lu", "lu_lock_min", "rev_yoy",
+        # 排隊買漲停買不買得到：正式提醒時、收盤後的委買／委賣第一檔張數與累計成交張數
+        "bid1_lots_1312", "ask1_lots_1312", "vol_lots_1312", "bid1_lots_close", "ask1_lots_close", "vol_lots_close"]
 
 
 def load() -> pd.DataFrame:
@@ -58,6 +60,16 @@ def set_lock_minutes(day: str, mins: dict[str, int]) -> None:
     if not m.any():
         return
     df.loc[m, "lu_lock_min"] = [mins.get(c, 0) for c in df.loc[m, "code"]]
+    save(df)
+
+
+def set_close_book(day: str, book: dict[str, dict]) -> None:
+    """收盤後的委買／委賣第一檔張數與全日成交張數（盤中監控 13:31 抓一次）。"""
+    df = load()
+    for i in df.index[df.signal_date == day]:
+        b = book.get(df.at[i, "code"]) or {}
+        for k in ("bid1_lots", "ask1_lots", "vol_lots"):
+            df.at[i, f"{k}_close"] = b.get(k)
     save(df)
 
 
