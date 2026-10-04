@@ -8,6 +8,8 @@ on:
       - screener/report.py
       - screener/live_page.html
       - screener/rebuild.py
+      - screener/weekly.py
+      - data/weekly/**
   workflow_dispatch:
 
 permissions:
