@@ -314,6 +314,20 @@ def lock_minutes(st: dict) -> dict[str, int]:
     return {c: m(last) - m(t) for c, t in (st.get("lock_since") or {}).items()}
 
 
+def close_book(today: str, stocks: pd.DataFrame, at: dt.datetime) -> None:
+    """收盤後抓今天正式訊號的委買／委賣第一檔與全日量：鎖漲停的話委買第一檔就是收盤時沒買到、還在排隊的張數。"""
+    codes = set(positions.load().query("signal_date == @today").code)
+    if not codes:
+        return
+    wait = (at - dt.datetime.now(TZ)).total_seconds()
+    if wait > 0:
+        time.sleep(wait)
+    q, _ = intraday.fetch_quotes(stocks[stocks.code.isin(codes)])
+    book = {r.code: {"bid1_lots": r.bid1_lots, "ask1_lots": r.ask1_lots, "vol_lots": r.vol_lots} for r in q.itertuples()}
+    positions.set_close_book(today, book)
+    log.info("收盤委買／委賣：%s", "、".join(f"{c} 買{b['bid1_lots']}／賣{b['ask1_lots']}／量{b['vol_lots']}" for c, b in book.items()))
+
+
 def official_result(today: str) -> dict | None:
     sf = ROOT / "data" / "intraday_state.json"
     if not sf.exists():
@@ -563,6 +577,10 @@ def main(argv=None) -> int:
             positions.set_lock_minutes(today, lock_minutes(st))
         except Exception as e:  # noqa: BLE001
             log.warning("鎖漲停分鐘數寫入失敗：%s", e)
+        try:
+            close_book(today, stocks, _hm(lc.get("close_snapshot", "13:31"), dt.datetime.now(TZ)))
+        except Exception as e:  # noqa: BLE001
+            log.warning("收盤委買委賣抓取失敗：%s", e)
     log.info("盤中監控結束，共掃描 %d 次", scans)
     return 0
 
