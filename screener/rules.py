@@ -281,3 +281,162 @@ def metrics(p: Panel, codes: list[str], spark_days: int = 60) -> pd.DataFrame:
     d["spark"] = [tail[c].round(2).tolist() for c in codes]
     d["spark_ma"] = [ma_tail[c].round(2).tolist() for c in codes]
     return d
+
+
+# ============================================================
+#  高檔鈍化後回檔：KD / MACD 條件（新增）
+# ============================================================
+def _kd(p: Panel):
+    if "kd" not in p._cache:
+        lo = p.low.rolling(9, min_periods=1).min()
+        hi = p.high.rolling(9, min_periods=1).max()
+        rsv = ((p.close - lo) / (hi - lo) * 100).where(hi > lo).fillna(50)
+        seed = pd.DataFrame(50.0, index=[rsv.index[0]], columns=rsv.columns)
+        k = pd.concat([seed, rsv]).ewm(alpha=1 / 3, adjust=False).mean().iloc[1:]
+        k.index = rsv.index
+        d = pd.concat([seed, k]).ewm(alpha=1 / 3, adjust=False).mean().iloc[1:]
+        d.index = rsv.index
+        p._cache["kd"] = (k, d)
+    return p._cache["kd"]
+
+
+def _osc(p: Panel):
+    if "osc" not in p._cache:
+        dif = p.close.ewm(span=12, adjust=False).mean() - p.close.ewm(span=26, adjust=False).mean()
+        p._cache["osc"] = dif - dif.ewm(span=9, adjust=False).mean()
+    return p._cache["osc"]
+
+
+def c_kd_dunhua(p: Panel, a):
+    """近 days 日內，K 值曾連續 run 天以上 > level（高檔鈍化）。"""
+    k, _ = _kd(p)
+    above = (k > a.get("level", 80)).astype(int)
+    cs = above.cumsum()
+    run = cs - cs.where(above == 0).ffill().fillna(0)
+    return run.rolling(a.get("days", 60), min_periods=1).max() >= a.get("run", 3)
+
+
+def c_kd_range(p: Panel, a):
+    """K 值介於 min~max。"""
+    k, _ = _kd(p)
+    return (k >= a.get("min", 0)) & (k <= a.get("max", 100))
+
+
+def c_kd_golden(p: Panel, a):
+    """K 值在 D 值之上（黃金交叉狀態）。"""
+    k, d = _kd(p)
+    return k > d
+
+
+def c_macd_improving(p: Panel, a):
+    """MACD 柱狀體翻紅，或比 days 天前明顯縮短（綠柱變短）。"""
+    o = _osc(p)
+    return (o > 0) | (o > o.shift(a.get("days", 3)))
+
+
+def c_retrace_ok(p: Panel, a):
+    """回檔沒跌破漲幅的一半：收盤 ≥ 低點 + (近 days 日高點 − 近 base_days 日低點) × keep%。"""
+    peak = p.high.rolling(a.get("days", 60), min_periods=1).max()
+    base = p.low.rolling(a.get("base_days", 120), min_periods=1).min()
+    return p.close >= base + (peak - base) * a.get("keep", 50) / 100
+
+
+def c_vol_shrink(p: Panel, a):
+    """近 short 日均量 < 近 long 日均量（量縮整理）。"""
+    s = p.volume.rolling(a.get("short", 5), min_periods=1).mean()
+    l = p.volume.rolling(a.get("long", 20), min_periods=1).mean()
+    return s < l
+
+
+def c_avg_volume(p: Panel, a):
+    """近 days 日平均成交量（張）≥ min。"""
+    return p.volume.rolling(a.get("days", 20), min_periods=1).mean() / 1000 >= a.get("min", 1000)
+
+
+CONDITIONS.update({
+    "kd_dunhua": (c_kd_dunhua, "近{days}日曾高檔鈍化"),
+    "kd_range": (c_kd_range, "K值{rng}"),
+    "kd_golden": (c_kd_golden, "KD黃金交叉"),
+    "macd_improving": (c_macd_improving, "MACD柱轉強"),
+    "retrace_ok": (c_retrace_ok, "回檔未破漲幅一半"),
+    "vol_shrink": (c_vol_shrink, "量縮整理"),
+    "avg_volume": (c_avg_volume, "{days}日均量{rng}張"),
+})
+
+# 兩個新策略（不用改 config.yaml，會自動加在策略清單最前面）
+DUNHUA_STRATEGIES = [
+    {"name": "鈍化回檔－進場訊號", "conditions": [
+        {"type": "kd_dunhua", "days": 60, "run": 3},     # 近 60 日 K 值曾連 3 天 > 80
+        {"type": "kd_range", "min": 20, "max": 45},      # 現在 K 值回到低檔
+        {"type": "above_ma", "period": 60},              # 守住季線
+        {"type": "ma_rising", "period": 60, "days": 20}, # 季線往上
+        {"type": "retrace_ok", "keep": 50},              # 回檔沒跌破漲幅一半
+        {"type": "avg_volume", "days": 20, "min": 1000}, # 20 日均量 1000 張以上
+        {"type": "kd_golden"},                           # KD 黃金交叉
+        {"type": "macd_improving", "days": 3},           # MACD 柱翻紅或綠柱縮短
+        {"type": "above_ma", "period": 5},               # 站回 5 日線
+    ]},
+    {"name": "鈍化回檔－觀察中", "conditions": [
+        {"type": "kd_dunhua", "days": 60, "run": 3},
+        {"type": "kd_range", "min": 20, "max": 45},
+        {"type": "above_ma", "period": 60},
+        {"type": "ma_rising", "period": 60, "days": 20},
+        {"type": "retrace_ok", "keep": 50},
+        {"type": "avg_volume", "days": 20, "min": 1000},
+        {"type": "kd_golden", "not": True},              # 還沒黃金交叉：先觀察
+    ]},
+]
+
+_run_strategies_orig = run_strategies
+
+
+def run_strategies(p, strategies, base_filter):  # noqa: F811
+    names = {s.get("name") for s in strategies}
+    for i, s in enumerate(DUNHUA_STRATEGIES):
+        if s["name"] not in names:
+            strategies.insert(i, dict(s, enabled=True))
+    return _run_strategies_orig(p, strategies, base_filter)
+
+
+# 報表點股票名稱時，K 線下方加畫 KD 與 MACD
+try:
+    from . import report as _rep
+
+    _IND_JS = r"""
+  try{(function(){
+    let ex=document.getElementById('kc2');
+    if(!ex){ex=document.createElement('div');ex.id='kc2';box.after(ex);}
+    ex.innerHTML='<div style="font-size:12px;color:var(--muted);margin-top:8px">KD：黃 K、藍 D・虛線 80 / 20・黃底 = 高檔鈍化（K 連 3 天 &gt; 80）</div><canvas id="kdc" style="display:block;width:100%;height:120px"></canvas><div style="font-size:12px;color:var(--muted);margin-top:6px">MACD 柱狀體：紅 = 多方、綠 = 空方</div><canvas id="mdc" style="display:block;width:100%;height:90px"></canvas>';
+    const T=[],H=[],Lw=[],C=[];
+    OHLC.dates.forEach((d,i)=>{const x=k[i];if(!x)return;T.push(d);H.push(x[1]);Lw.push(x[2]);C.push(x[3]);});
+    let kk=50,dd=50;const K=[],D=[];
+    for(let i=0;i<C.length;i++){const a=Math.max(0,i-8),hh=Math.max(...H.slice(a,i+1)),ll=Math.min(...Lw.slice(a,i+1));
+      const rsv=hh>ll?(C[i]-ll)/(hh-ll)*100:50;kk=kk*2/3+rsv/3;dd=dd*2/3+kk/3;K.push(kk);D.push(dd);}
+    const ema=(arr,n)=>{const r=[];const al=2/(n+1);arr.forEach((v,i)=>r.push(i?r[i-1]+al*(v-r[i-1]):v));return r;};
+    const e12=ema(C,12),e26=ema(C,26),dif=C.map((_,i)=>e12[i]-e26[i]),sg=ema(dif,9),osc=dif.map((v,i)=>v-sg[i]);
+    const muted=cv('--muted')||'#888',line=cv('--line')||'#ddd';
+    function prep(cn){const r=window.devicePixelRatio||1,w=cn.clientWidth,h=cn.clientHeight;cn.width=w*r;cn.height=h*r;const g=cn.getContext('2d');g.setTransform(r,0,0,r,0,0);g.clearRect(0,0,w,h);return [g,w,h];}
+    function paint(){
+      const xs=T.map(t=>chart.timeScale().timeToCoordinate(t));
+      const bw=Math.max(1,(chart.timeScale().width()/Math.max(1,(chart.timeScale().getVisibleLogicalRange()||{to:T.length,from:0}).to-(chart.timeScale().getVisibleLogicalRange()||{from:0}).from))*0.7);
+      const pw=chart.timeScale().width();
+      let [g,w,h]=prep(document.getElementById('kdc'));const Y=v=>4+(100-v)/100*(h-8);
+      for(let i=0;i<K.length;){if(K[i]>80){let j=i;while(j<K.length&&K[j]>80)j++;if(j-i>=3&&xs[i]!=null&&xs[j-1]!=null){g.fillStyle='rgba(237,161,0,.22)';g.fillRect(xs[i]-bw/2,0,xs[j-1]-xs[i]+bw,h);}i=j;}else i++;}
+      g.strokeStyle=muted;g.setLineDash([3,3]);g.lineWidth=1;[80,20].forEach(v=>{g.beginPath();g.moveTo(0,Y(v));g.lineTo(pw,Y(v));g.stroke();g.fillStyle=muted;g.font='11px sans-serif';g.fillText(String(v),pw+6,Y(v)+4);});g.setLineDash([]);
+      [[K,'#e0a100'],[D,'#2a78d6']].forEach(([arr,col])=>{g.strokeStyle=col;g.lineWidth=1.8;g.beginPath();let st=false;arr.forEach((v,i)=>{const x=xs[i];if(x==null)return;st?g.lineTo(x,Y(v)):g.moveTo(x,Y(v));st=true;});g.stroke();});
+      const n=K.length-1;g.fillStyle=muted;g.fillText('K '+K[n].toFixed(1)+'  D '+D[n].toFixed(1),4,12);
+      [g,w,h]=prep(document.getElementById('mdc'));let mx=0;osc.forEach((v,i)=>{if(xs[i]!=null)mx=Math.max(mx,Math.abs(v));});mx=mx||1;const mid=h/2;
+      g.strokeStyle=line;g.beginPath();g.moveTo(0,mid);g.lineTo(pw,mid);g.stroke();
+      osc.forEach((v,i)=>{const x=xs[i];if(x==null)return;g.fillStyle=v>=0?up:dn;const y=mid-v/mx*(mid-4);g.fillRect(x-bw/2,Math.min(y,mid),bw,Math.max(1,Math.abs(y-mid)));});
+    }
+    if(window._indSub)try{window._indSubChart.timeScale().unsubscribeVisibleLogicalRangeChange(window._indSub);}catch(e){}
+    window._indSub=()=>requestAnimationFrame(paint);window._indSubChart=chart;
+    chart.timeScale().subscribeVisibleLogicalRangeChange(window._indSub);
+    setTimeout(paint,50);
+  })();}catch(e){console.warn('KD/MACD draw failed',e&&e.message);}
+"""
+    _ANCHOR = "  chart.timeScale().fitContent();\n}"
+    if "kc2" not in _rep.TEMPLATE and _ANCHOR in _rep.TEMPLATE:
+        _rep.TEMPLATE = _rep.TEMPLATE.replace(_ANCHOR, "  chart.timeScale().fitContent();\n" + _IND_JS + "}", 1)
+except Exception:  # noqa: BLE001
+    pass
