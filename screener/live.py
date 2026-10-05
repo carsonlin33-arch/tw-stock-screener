@@ -298,6 +298,9 @@ def holdings_view(q: pd.DataFrame, now: dt.datetime, shrink: float, drop_pct: fl
         status = "—"
         if proj_ratio is not None:
             status = "可能量縮出場" if proj_ratio < shrink else "量能維持"
+            # 收盤收在漲停價的那天量縮不算（positions.update 同一條規則），盤中在漲停價上就先標續抱
+            if proj_ratio < shrink and price and positions._limit_up(float(price), x.yclose):
+                status = "漲停續抱（量縮不算）"
         out.append({"code": r.code, "name": r.name, "signal_date": r.signal_date, "entry": _num(entry),
                     "price": _num(price), "ret": _num(ret), "chg": _num(x.chg),
                     "vol_lots": _num(x.vol_lots, 0), "proj_ratio": _num(proj_ratio),
