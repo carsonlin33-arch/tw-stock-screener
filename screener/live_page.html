@@ -195,10 +195,12 @@ function render(d){
     o.stocks&&o.stocks.length?`<b>${o.time}</b> 共 ${o.stocks.length} 檔：`+o.stocks.map(s=>`<span class="tag r">${s.code} ${esc(s.name)} ${num(s.price)}${s.rev_yoy==null?'':` ・ 營收 ${s.rev_yoy>0?'+':''}${s.rev_yoy.toFixed(0)}%${s.rev_yoy<=0?' ⚠️':''}`}</span>`).join(''):
     `<b>${o.time}</b> 今天沒有符合正式條件的股票`;
 
-  // 本益比（虧損或無資料顯示「—」）、月營收年增%、外資前一日買賣超（張）
+  // 本益比（虧損或無資料顯示「—」）、月營收年增%、外資前一日買賣超（張）、三大法人近 5 日買賣超占成交量%、前一日當沖比%
   const fund=r=>`<td>${r.pe==null?'—':r.pe.toFixed(1)}</td>`+
     `<td class="${cls(r.rev_yoy)}">${r.rev_yoy==null?'—':(r.rev_yoy>0?'+':'')+r.rev_yoy.toFixed(0)+'%'}</td>`+
-    `<td class="${cls(r.foreign)}">${r.foreign==null?'—':(r.foreign>0?'+':'')+Math.round(r.foreign).toLocaleString()}${r.fstreak?`<div class="meta">${r.fstreak>0?'連買':'連賣'} ${Math.abs(r.fstreak)} 天</div>`:''}</td>`;
+    `<td class="${cls(r.foreign)}">${r.foreign==null?'—':(r.foreign>0?'+':'')+Math.round(r.foreign).toLocaleString()}${r.fstreak?`<div class="meta">${r.fstreak>0?'連買':'連賣'} ${Math.abs(r.fstreak)} 天</div>`:''}</td>`+
+    `<td class="${cls(r.inst5)}">${r.inst5==null?'—':(r.inst5>0?'+':'')+r.inst5.toFixed(1)+'%'}</td>`+
+    `<td>${r.dt==null?'—':r.dt.toFixed(0)+'%'}</td>`;
   const flag=r=>r.flag?`<span class="tag r">${esc(r.flag)}</span>`:'';
   const chip=m=>`<span class="tag${m[3]?' r':''}" title="${m[3]?'漲停鎖住':''}">${esc(m[1])} <span class="${m[3]?'':cls(m[2])}">${pct(m[2])}</span></span>`;
   table($('heat'),[['族群','l'],['發動'],['其中爆量'],['漲停'],['漲 7%+'],['平均漲跌'],['達 5 家','l'],['成員（漲幅排序）','l']],
@@ -208,7 +210,7 @@ function render(d){
       <td class="l" style="white-space:normal;min-width:320px">${(h.members||[]).map(chip).join('')}</td></tr>`),
     '目前沒有族群有 2 檔以上在發動');
 
-  table($('alerts'),[['預警時間','l'],['股票','l'],['產業','l'],['預警價'],['現價'],['預警後'],['今日漲跌'],['目前量(張)'],['預估全日量比'],['本益比'],['營收年增'],['外資(張)'],['標記','l']],
+  table($('alerts'),[['預警時間','l'],['股票','l'],['產業','l'],['預警價'],['現價'],['預警後'],['今日漲跌'],['目前量(張)'],['預估全日量比'],['本益比'],['營收年增'],['外資(張)'],['法人5日占量'],['前日當沖'],['標記','l']],
     (d.alerts||[]).map(r=>`<tr class="${r.hit||r.noprice||r.split?'':'off'}"><td class="l">${r.first_time}</td><td class="l">${link(r)}</td>
       <td class="l meta">${esc(r.industry)}</td><td>${num(r.first_price)}</td><td>${num(r.price)}</td>
       <td class="${cls(r.since)}">${pct(r.since)}</td><td class="${cls(r.chg)}">${pct(r.chg)}</td>
@@ -223,7 +225,7 @@ function render(d){
       <td class="l">${r.status==='可能量縮出場'?'<span class="tag w">可能量縮出場</span>':`<span class="tag">${esc(r.status)}</span>`}${r.drop_alert?'<span class="tag r">跌幅警示</span>':''}</td></tr>`),
     '目前沒有持有中的股票');
 
-  table($('cands'),[['股票','l'],['產業','l'],['現價'],['漲跌'],['目前量(張)'],['目前量比'],['預估全日量比'],['本益比'],['營收年增'],['外資(張)'],['標記','l']],
+  table($('cands'),[['股票','l'],['產業','l'],['現價'],['漲跌'],['目前量(張)'],['目前量比'],['預估全日量比'],['本益比'],['營收年增'],['外資(張)'],['法人5日占量'],['前日當沖'],['標記','l']],
     (d.candidates||[]).map(r=>`<tr><td class="l">${link(r)}</td><td class="l meta">${esc(r.industry)}</td><td>${num(r.price)}</td>
       <td class="${cls(r.chg)}">${pct(r.chg)}</td><td>${num(r.vol_lots,0)}</td><td>${r.vol_x==null?'—':r.vol_x.toFixed(1)+'×'}</td>
       <td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td>${fund(r)}<td class="l">${flag(r)}${r.split?'<span class="tag w">分盤</span>':''}${r.locked?'<span class="tag r">漲停鎖住（買不到）</span>':''}${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${peer(r)}${extra(r)}</td></tr>`),
