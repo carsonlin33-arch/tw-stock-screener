@@ -195,6 +195,8 @@ const cols=[
  {k:'foreign',t:'外資(張)',f:v=>(v>0?'+':'')+Math.round(v).toLocaleString(),c:v=>v>0?'up':v<0?'down':''},
  {k:'foreign_streak',t:'外資連續',f:stk,c:v=>v>0?'up':v<0?'down':''},
  {k:'trust_streak',t:'投信連續',f:stk,c:v=>v>0?'up':v<0?'down':''},
+ {k:'inst_pct',t:'法人占量%',f:v=>(v>0?'+':'')+v.toFixed(1),c:v=>v>0?'up':v<0?'down':''},
+ {k:'inst_pct_5d',t:'法人5日占量%',f:v=>(v>0?'+':'')+v.toFixed(1),c:v=>v>0?'up':v<0?'down':''},
  {k:'rev_yoy',t:'月營收年增%',f:v=>(v>0?'+':'')+v.toFixed(0),c:v=>v>0?'up':v<0?'down':''},
  {k:'rev_streak',t:'營收連增',f:v=>v>0?v+' 個月':v<0?'減 '+(-v)+' 個月':'—',c:v=>v>0?'up':v<0?'down':''},
  {k:'rev_yoy_3m',t:'近3月年增%',f:v=>(v>0?'+':'')+v.toFixed(0),c:v=>v>0?'up':v<0?'down':''},
@@ -323,6 +325,7 @@ async function openK(code){
    `融資 <b>${f(r.margin_chg,v=>(v>0?'+':'')+Math.round(v).toLocaleString()+' 張')}</b>${r.margin_streak?`（${r.margin_streak>0?'連增':'連減'} ${Math.abs(r.margin_streak)} 天）`:''}`,
    `融資 5 日 <b>${f(r.margin_5d_pct,v=>(v>0?'+':'')+v.toFixed(1)+'%')}</b>`,`融資使用率 <b>${f(r.margin_util,v=>v.toFixed(1)+'%')}</b>`,
    `券資比 <b>${f(r.short_ratio,v=>v.toFixed(1)+'%')}</b>`,`當沖 <b>${f(r.dt_ratio,v=>v.toFixed(0)+'%')}</b>`,
+   `三大法人占量 <b>${f(r.inst_pct,v=>(v>0?'+':'')+v.toFixed(1)+'%')}</b>（5 日 ${f(r.inst_pct_5d,v=>(v>0?'+':'')+v.toFixed(1)+'%')}）`,
    `營收 <b>${r.rev_streak?(r.rev_streak>0?'連增 '+r.rev_streak:'連減 '+(-r.rev_streak))+' 個月':'—'}</b>`,
    `近 3 月年增 <b>${f(r.rev_yoy_3m,v=>(v>0?'+':'')+v.toFixed(0)+'%')}</b>${r.rev_accel!=null?`（${r.rev_accel>0?'加速':'減速'} ${Math.abs(r.rev_accel).toFixed(0)} 個百分點）`:''}`,
    `<a href="${r.url}" target="_blank" rel="noopener">Yahoo 股市 ↗</a>`].join('');
@@ -435,7 +438,8 @@ def build_rows(stocks: pd.DataFrame, met: pd.DataFrame, hits: dict[str, list[str
         r = rows[-1]
         ex = extras.loc[code] if extras is not None and code in extras.index else None
         for k in ["pe", "trust", "foreign", "rev_yoy", "foreign_streak", "trust_streak", "rev_streak", "rev_yoy_3m",
-                  "rev_accel", "margin_chg", "margin_5d_pct", "margin_util", "margin_streak", "short_ratio", "dt_ratio"]:
+                  "rev_accel", "margin_chg", "margin_5d_pct", "margin_util", "margin_streak", "short_ratio", "dt_ratio",
+                  "dealer", "inst_pct", "inst_pct_5d"]:
             r[k] = _clean(float(ex[k])) if ex is not None and k in ex and pd.notna(ex[k]) else None
         if r["pe"] is None and ex is not None and "pe" in ex:
             r["pe"] = -1 if "pb" in ex and pd.notna(ex.get("pb")) else None  # 有資料但沒本益比 = 虧損

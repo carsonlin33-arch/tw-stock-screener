@@ -107,6 +107,10 @@ def pe(s, d: dt.date) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------ 三大法人（股數→張）
+def _lots(r, i):
+    return (_num(r[i]) or 0) / 1000 if i is not None and i < len(r) else None
+
+
 def institutional(s, d: dt.date) -> pd.DataFrame:
     out = []
     j = _json(s, "https://www.twse.com.tw/rwd/zh/fund/T86",
@@ -116,11 +120,11 @@ def institutional(s, d: dt.date) -> pd.DataFrame:
         ic = _col(f, "代號")
         ifo = _foreign_col(f)
         iit = _col(f, "投信", "買賣超")
+        idl = _col(f, "自營商買賣超", exclude=("外資", "自行", "避險"))
         itot = _col(f, "三大法人買賣超")
         for r in t["data"]:
-            out.append({"code": str(r[ic]).strip(), "foreign": (_num(r[ifo]) or 0) / 1000 if ifo is not None else None,
-                        "trust": (_num(r[iit]) or 0) / 1000 if iit is not None else None,
-                        "inst_total": (_num(r[itot]) or 0) / 1000 if itot is not None else None})
+            out.append({"code": str(r[ic]).strip(), "foreign": _lots(r, ifo), "trust": _lots(r, iit),
+                        "dealer": _lots(r, idl), "inst_total": _lots(r, itot)})
         break
     time.sleep(3)
     j = _json(s, "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade",
@@ -130,16 +134,17 @@ def institutional(s, d: dt.date) -> pd.DataFrame:
         ic = _col(f, "代號")
         ifo = _foreign_col(f)
         iit = _col(f, "投信", "買賣超")
+        idl = _col(f, "自營商", "買賣超", exclude=("外資", "自行", "避險"))
         itot = _col(f, "三大法人", "買賣超")
         if ifo is None and len(f) >= 24 and "買賣超" in str(f[4]):
-            # 櫃買新版欄位名稱沒有寫法人別，固定順序：外資(不含自營)、外資自營、外資合計、投信、自營商…、合計
-            ifo, iit, itot = 4, 13, len(f) - 1
+            # 櫃買新版欄位名稱沒有寫法人別，固定順序：外資(不含自營)、外資自營、外資合計、投信、
+            # 自營商(自行)、自營商(避險)、自營商合計（各 買進／賣出／買賣超）、三大法人合計
+            ifo, iit, idl, itot = 4, 13, 22, len(f) - 1
         if ic is None:
             continue
         for r in t["data"]:
-            out.append({"code": str(r[ic]).strip(), "foreign": (_num(r[ifo]) or 0) / 1000 if ifo is not None else None,
-                        "trust": (_num(r[iit]) or 0) / 1000 if iit is not None else None,
-                        "inst_total": (_num(r[itot]) or 0) / 1000 if itot is not None else None})
+            out.append({"code": str(r[ic]).strip(), "foreign": _lots(r, ifo), "trust": _lots(r, iit),
+                        "dealer": _lots(r, idl), "inst_total": _lots(r, itot)})
         break
     return pd.DataFrame(out)
 
@@ -270,23 +275,31 @@ def refresh(d: dt.date, backfill: int = 25) -> dict[str, int]:
 
 # ------------------------------------------------------------ 法人歷史：算「連續買超 / 賣超幾天」
 INST_HIST = DIR / "inst_hist.csv.gz"
-INST_KEEP = 60  # 保留最近 60 個交易日
+INST_KEEP = 260  # 保留最近一年（算連續天數、5 日累計、法人占成交量比例，也給回測用）
+INST_COLS = ["date", "code", "foreign", "trust", "dealer", "inst_total"]
 
 
 def update_inst_history(s, d: dt.date, today_df: pd.DataFrame, backfill: int = 20) -> int:
     """把今天的法人買賣超加進歷史檔；歷史不夠時往前補抓最多 backfill 個交易日。回傳歷史天數。"""
-    cols = ["date", "code", "foreign", "trust"]
+    cols = INST_COLS
     hist = pd.read_csv(INST_HIST, dtype={"code": str}) if INST_HIST.exists() else pd.DataFrame(columns=cols)
-    today = today_df.assign(date=d.isoformat())[cols]
-    hist = pd.concat([hist[hist.date != d.isoformat()], today], ignore_index=True)
-    have = set(hist.date)
-    if len(have) < backfill:
+    hist = hist.reindex(columns=cols)
+    if len(today_df):
+        today = today_df.assign(date=d.isoformat()).reindex(columns=cols)
+        hist = pd.concat([hist[hist.date != d.isoformat()], today], ignore_index=True)
+    # 要重抓的日子：沒資料、只抓到一半（例如 15:20 時證交所還沒公布、只有櫃買）、或舊資料沒有自營商欄
+    g = hist.groupby("date")
+    n, no_dealer = g.code.count(), g.dealer.apply(lambda x: x.isna().all())
+    bad = set(n[(n < 0.8 * n.median()) | no_dealer].index) if len(n) else set()
+    have = set(hist.date) - bad
+    if backfill > 0:
         try:
             from . import fetch
             days = sorted(fetch.load_history().date.unique())
         except Exception:  # noqa: BLE001
             days = []
-        need = [x for x in days if x < d.isoformat() and x not in have][-(backfill - len(have)):]
+        need = [x for x in days if x < d.isoformat()][-backfill:]
+        need = [x for x in need if x not in have]
         for x in reversed(need):
             try:
                 df = institutional(s, dt.date.fromisoformat(x))
@@ -294,7 +307,7 @@ def update_inst_history(s, d: dt.date, today_df: pd.DataFrame, backfill: int = 2
                 log.warning("補抓法人 %s 失敗：%s", x, e)
                 df = pd.DataFrame()
             if len(df):
-                hist = pd.concat([hist, df.assign(date=x)[cols]], ignore_index=True)
+                hist = pd.concat([hist[hist.date != x], df.assign(date=x).reindex(columns=cols)], ignore_index=True)
                 log.info("補抓法人 %s：%d 筆", x, len(df))
             time.sleep(3)
     keep = sorted(set(hist.date))[-INST_KEEP:]
@@ -324,11 +337,30 @@ def inst_streaks() -> pd.DataFrame:
     h = pd.read_csv(INST_HIST, dtype={"code": str}).sort_values("date")
     days = sorted(h.date.unique())
     out = pd.DataFrame(index=sorted(h.code.unique()))
-    for k in ["foreign", "trust"]:
-        w = h.pivot(index="date", columns="code", values=k).reindex(days)
+    piv = {}
+    for k in ["foreign", "trust", "dealer"]:
+        if k not in h.columns or h[k].isna().all():
+            continue
+        w = piv[k] = h.pivot(index="date", columns="code", values=k).reindex(days)
         out[f"{k}_streak"] = pd.Series({c: _streak(w[c]) for c in w.columns})
         out[f"{k}_5d"] = w.iloc[-5:].sum(min_count=1)
     out["inst_days"] = len(days)
+    # 法人買賣超占當天成交量（%）：最近一天、近 5 日累計
+    try:
+        from . import fetch
+        hv = fetch.load_history()
+        vol = hv[hv.date.isin(days[-5:])].pivot(index="date", columns="code", values="volume").reindex(days[-5:]) / 1000
+        net = None
+        if piv:  # 有任一法人資料才算（全部缺就是 NaN，不當成 0）
+            parts = [piv[k].iloc[-5:] for k in piv]
+            net = sum(p.fillna(0) for p in parts).where(~pd.concat(parts).isna().groupby(level=0).all())
+        if net is not None:
+            out["inst_pct"] = (net.iloc[-1] / vol.iloc[-1].where(vol.iloc[-1] > 0) * 100).round(1)
+            out["inst_pct_5d"] = (net.sum() / vol.sum(min_count=1).where(lambda v: v > 0) * 100).round(1)
+            if "foreign" in piv:
+                out["foreign_pct"] = (piv["foreign"].iloc[-1] / vol.iloc[-1].where(vol.iloc[-1] > 0) * 100).round(1)
+    except Exception as e:  # noqa: BLE001
+        log.warning("法人占成交量計算失敗：%s", e)
     out.index.name = "code"
     return out
 
@@ -453,6 +485,12 @@ def main():
     if a.backfill_chips:
         from . import chips
         print(chips.update_margin_history(s, d, a.backfill_chips), "月營收", chips.update_revenue_history(s, d), "個月")
+        try:
+            today = institutional(s, d)
+        except Exception as e:  # noqa: BLE001
+            log.warning("今天法人抓不到：%s", e)
+            today = pd.DataFrame()
+        print("法人歷史", update_inst_history(s, d, today, a.backfill_chips), "天")
         return
     for name, fn in [("本益比", lambda: pe(s, d)), ("三大法人", lambda: institutional(s, d)),
                      ("月營收", lambda: revenue(s)), ("重大訊息", lambda: announcements(s)),

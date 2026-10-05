@@ -266,6 +266,17 @@ def group_heat(q: pd.DataFrame, st: dict, hm: str, themes: dict[str, list[str]],
     return out
 
 
+def save_vol_curve(today: str, hm: str, q: pd.DataFrame, codes: set[str]) -> None:
+    """記錄預警、候選、持股每次掃描的累計成交量（data/vol_curve/日期.csv），之後拿收盤全日量校正 PROFILE。"""
+    x = q[q.code.isin(codes) & q.vol_lots.notna()][["code", "vol_lots", "price"]]
+    if x.empty:
+        return
+    d = ROOT / "data" / "vol_curve"
+    d.mkdir(parents=True, exist_ok=True)
+    f = d / f"{today}.csv"
+    x.assign(time=hm)[["time", "code", "vol_lots", "price"]].to_csv(f, mode="a", header=not f.exists(), index=False)
+
+
 def save_heat_log(today: str, heat: list[dict]) -> None:
     """族群熱度存成 data/group_heat/YYYY-MM-DD.csv（每輪覆蓋成最新），之後統計「10 點前就發動的族群」後面幾天的表現。"""
     if not heat:
@@ -358,7 +369,8 @@ def stock_row(r, first: dict | None = None) -> dict:
     if x:
         d.update(pe=_num(x.get("pe"), 1), rev_yoy=_num(x.get("rev_yoy"), 0), foreign=_num(x.get("foreign"), 0),
                  flag=x.get("flag") if isinstance(x.get("flag"), str) else None,
-                 fstreak=_num(x.get("foreign_streak"), 0), tstreak=_num(x.get("trust_streak"), 0))
+                 fstreak=_num(x.get("foreign_streak"), 0), tstreak=_num(x.get("trust_streak"), 0),
+                 inst5=_num(x.get("inst_pct_5d"), 1), dt=_num(x.get("dt_ratio"), 0))
     # 處置股採分盤集中撮合（約每 5~20 分鐘才成交一次），盤中常沒有即時成交價
     d["split"] = d.get("flag") == "處置"
     if first:
@@ -449,7 +461,8 @@ def main(argv=None) -> int:
     qinfo = quarter_info(today, hist.date.unique())
     try:
         ex = enrich.load()
-        cols = [c for c in ["pe", "rev_yoy", "foreign", "flag", "foreign_streak", "trust_streak"] if c in ex.columns]
+        cols = [c for c in ["pe", "rev_yoy", "foreign", "flag", "foreign_streak", "trust_streak", "inst_pct_5d", "dt_ratio"]
+                if c in ex.columns]
         _EXT.update(ex[cols].to_dict("index"))
         log.info("載入本益比／營收／法人資料 %d 檔", len(_EXT))
     except Exception as e:  # noqa: BLE001
@@ -556,6 +569,7 @@ def main(argv=None) -> int:
             publish(_clean(payload))
             save_alert_log(today, alerts, st.get("official"))
             save_heat_log(today, heat)
+            save_vol_curve(today, hm, q, {*st["alerts"], *(c["code"] for c in cands), *(h["code"] for h in holds)})
             STATE_F.write_text(json.dumps(st, ensure_ascii=False), "utf-8")
             log.info("%s 掃描 %d 檔｜符合 %d｜今日預警 %d｜持股 %d（%.0f 秒）",
                      hm, len(q), len(cands), len(alerts), len(holds), time.time() - t0)
