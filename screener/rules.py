@@ -440,3 +440,50 @@ try:
         _rep.TEMPLATE = _rep.TEMPLATE.replace(_ANCHOR, "  chart.timeScale().fitContent();\n" + _IND_JS + "}", 1)
 except Exception:  # noqa: BLE001
     pass
+  
+
+# ============================================================
+#  第二種型態：鈍化後深回檔 → 守住季線打底 → MACD 翻紅站回月線（台塑化型）
+# ============================================================
+def c_held_ma(p: Panel, a):
+    """近 days 日收盤都守在 MA{period} 之上（容許 tol% 誤差）。"""
+    ma = p.ma(a.get("period", 60))
+    ok = (p.close >= ma * (1 - a.get("tol", 2) / 100)).astype(float)
+    return ok.rolling(a.get("days", 30), min_periods=a.get("days", 30)).min() == 1
+
+
+def c_base_range(p: Panel, a):
+    """前 days 日（不含今天）的整理區間振幅 ≤ max%：代表在打底橫盤。"""
+    n = a.get("days", 15)
+    rng = (p.high.rolling(n).max() - p.low.rolling(n).min()) / p.close * 100
+    return rng.shift(1) <= a.get("max", 15)
+
+
+def c_macd_turn_red(p: Panel, a):
+    """MACD 柱狀體在 recent 天內由綠翻紅，且今天仍是紅柱。"""
+    o = _osc(p)
+    turned = ((o > 0) & (o.shift(1) <= 0)).astype(float).rolling(a.get("recent", 3), min_periods=1).max() == 1
+    return turned & (o > 0)
+
+
+CONDITIONS.update({
+    "held_ma": (c_held_ma, "近{days}日守住MA{period}"),
+    "base_range": (c_base_range, "{days}日打底振幅≤{max}%"),
+    "macd_turn_red": (c_macd_turn_red, "MACD柱翻紅"),
+})
+
+DUNHUA_STRATEGIES.append(
+    {"name": "鈍化回檔－打底突破", "conditions": [
+        {"type": "kd_dunhua", "days": 60, "run": 3},      # 近 60 日 K 值曾連 3 天 > 80
+        {"type": "held_ma", "period": 60, "days": 30},    # 回檔期間守住季線
+        {"type": "base_range", "days": 15, "max": 15},    # 前 15 日橫盤打底，振幅 ≤ 15%
+        {"type": "macd_turn_red", "recent": 3},           # MACD 柱 3 天內翻紅
+        {"type": "above_ma", "period": 20},               # 站上月線
+        {"type": "avg_volume", "days": 20, "min": 1000},  # 20 日均量 1000 張以上
+    ]}
+)
+
+# 第一種型態加上「回檔不超過近 60 日高點 15%」（回測後的優化；已手動加過就略過）
+for _s in DUNHUA_STRATEGIES[:2]:
+    if not any(_c.get("type") == "near_high" for _c in _s["conditions"]):
+        _s["conditions"].append({"type": "near_high", "days": 60, "pct": 15})
