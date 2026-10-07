@@ -5,8 +5,8 @@
  "all": {
   "n": 61,
   "close_hit": 47.5,
-  "ret3": 2.77,
-  "ret3_n": 20,
+  "ret3": 3.23,
+  "ret3_n": 34,
   "ret5": null,
   "ret5_n": 0
  },
@@ -15,8 +15,8 @@
    "bucket": "09:30–10:30",
    "n": 48,
    "close_hit": 45.8,
-   "ret3": 3.43,
-   "ret3_n": 17,
+   "ret3": 3.64,
+   "ret3_n": 26,
    "ret5": null,
    "ret5_n": 0
   },
@@ -24,8 +24,8 @@
    "bucket": "10:30–12:00",
    "n": 8,
    "close_hit": 50.0,
-   "ret3": -0.85,
-   "ret3_n": 1,
+   "ret3": 0.68,
+   "ret3_n": 5,
    "ret5": null,
    "ret5_n": 0
   },
@@ -33,8 +33,8 @@
    "bucket": "12:00 後",
    "n": 5,
    "close_hit": 60.0,
-   "ret3": -1.0,
-   "ret3_n": 2,
+   "ret3": 3.89,
+   "ret3_n": 3,
    "ret5": null,
    "ret5_n": 0
   }
@@ -44,8 +44,8 @@
    "bucket": "0 家",
    "n": 10,
    "close_hit": 20.0,
-   "ret3": -4.2,
-   "ret3_n": 5,
+   "ret3": -4.32,
+   "ret3_n": 6,
    "ret5": null,
    "ret5_n": 0
   },
@@ -53,8 +53,8 @@
    "bucket": "1~2 家",
    "n": 15,
    "close_hit": 66.7,
-   "ret3": 10.35,
-   "ret3_n": 7,
+   "ret3": 7.58,
+   "ret3_n": 13,
    "ret5": null,
    "ret5_n": 0
   },
@@ -62,8 +62,8 @@
    "bucket": "3~5 家",
    "n": 5,
    "close_hit": 40.0,
-   "ret3": null,
-   "ret3_n": 0,
+   "ret3": 4.21,
+   "ret3_n": 2,
    "ret5": null,
    "ret5_n": 0
   },
@@ -71,8 +71,8 @@
    "bucket": "6 家以上",
    "n": 31,
    "close_hit": 48.4,
-   "ret3": 0.5,
-   "ret3_n": 8,
+   "ret3": 2.22,
+   "ret3_n": 13,
    "ret5": null,
    "ret5_n": 0
   }
